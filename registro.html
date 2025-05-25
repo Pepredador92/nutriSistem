@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NutriSistem - Registro</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+    <header>
+        <h1>NutriSistem - Registro de Usuario</h1>
+    </header>
+    <main>
+        <section id="registro-section">
+            <h2>Crear Nueva Cuenta</h2>
+            <form id="registro-form">
+                <div>
+                    <label for="nombre-registro">Nombre:</label>
+                    <input type="text" id="nombre-registro" name="nombre-registro" required>
+                </div>
+                <div>
+                    <label for="apellido-registro">Apellido:</label>
+                    <input type="text" id="apellido-registro" name="apellido-registro" required>
+                </div>
+                <div>
+                    <label for="email-registro">Correo Electrónico:</label>
+                    <input type="email" id="email-registro" name="email-registro" required>
+                </div>
+                <div>
+                    <label for="password-registro">Contraseña:</label>
+                    <input type="password" id="password-registro" name="password-registro" required>
+                </div>
+                <div>
+                    <label for="confirm-password-registro">Confirmar Contraseña:</label>
+                    <input type="password" id="confirm-password-registro" name="confirm-password-registro" required>
+                </div>
+                <button type="submit">Registrarse</button>
+                <p id="registro-error" class="error-message"></p>
+                <p>¿Ya tienes una cuenta? <a href="index.html">Inicia sesión aquí</a>.</p>
+            </form>
+        </section>
+    </main>
+    <footer>
+        <p>&copy; 2025 NutriSistem</p>
+    </footer>
+    <script src="js/registro.js"></script>
+</body>
+
+</html>

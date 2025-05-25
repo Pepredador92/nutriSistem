@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NutriSistem - Dashboard</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body class="dashboard-page">
+    <header>
+        <h1>NutriSistem - Dashboard</h1>
+    </header>
+    <div class="dashboard-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>NutriSistem</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="dashboard.html" data-section="inicio">Inicio</a></li>
+                    <li><a href="pacientes.html">Registrar Paciente</a></li>
+                    <li><a href="citas.html">Nueva Cita</a></li> <!-- AÑADIDO para consistencia -->
+                    <li><a href="#" data-section="estadisticas">Estadísticas</a></li>
+                </ul>
+            </nav>
+            <div class="sidebar-footer">
+                <button id="logout-btn-sidebar" class="logout-button-sidebar">Cerrar Sesión</button>
+            </div>
+        </aside>
+        <main class="main-content">
+            <section id="inicio-section" class="dashboard-section">
+                <h2>Bienvenido a NutriSistem</h2>
+                <p>Selecciona una opción del menú para comenzar o revisa la información general.</p>
+                <img src="https://picsum.photos/seed/nutrisistem/800/400" alt="Bienvenida a NutriSistem"
+                    class="welcome-image">
+            </section>
+            <section id="estadisticas-section" class="dashboard-section" style="display: none;">
+                <h2>Estadísticas</h2>
+                <p>Esta sección mostrará gráficas y datos relevantes sobre el progreso de los pacientes.</p>
+                <p><em>(Contenido de estadísticas en desarrollo)</em></p>
+            </section>
+        </main>
+    </div>
+    <footer>
+        <p>&copy; 2025 NutriSistem</p>
+    </footer>
+    <script src="js/storage.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Protección de ruta y logout
+            if (!localStorage.getItem('loggedInUser')) {
+                window.location.href = 'index.html';
+                return;
+            }
+
+            const logoutBtn = document.getElementById('logout-btn-sidebar');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    localStorage.removeItem('loggedInUser');
+                    window.location.href = 'index.html';
+                });
+            }
+
+            // Navegación del Sidebar y activación de enlaces
+            const sidebarNavLinks = document.querySelectorAll('.sidebar-nav a');
+            const sections = document.querySelectorAll('.main-content .dashboard-section');
+            const currentPage = window.location.pathname.split("/").pop();
+
+            sidebarNavLinks.forEach(link => {
+                const linkHref = link.getAttribute('href').split("/").pop();
+                const linkDataSection = link.getAttribute('data-section');
+
+                // Marcar como activo el enlace correspondiente a la página actual o sección
+                if (linkHref === currentPage || (linkHref === '#' && currentPage === 'dashboard.html' && linkDataSection === 'inicio')) {
+                    link.classList.add('active');
+                } else if (currentPage === 'dashboard.html' && linkDataSection === 'inicio' && (linkHref === 'dashboard.html' || linkHref === '#')) {
+                    link.classList.add('active'); // Asegura que 'Inicio' esté activo en dashboard.html
+                }
+
+                if (link.hasAttribute('data-section')) {
+                    link.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        // Si estamos en dashboard.html, manejamos secciones internas
+                        if (currentPage === 'dashboard.html' || currentPage === '') {
+                            const sectionId = this.getAttribute('data-section');
+                            sections.forEach(section => section.style.display = 'none');
+                            sidebarNavLinks.forEach(s_link => s_link.classList.remove('active'));
+
+                            const activeSection = document.getElementById(sectionId + '-section');
+                            if (activeSection) {
+                                activeSection.style.display = 'block';
+                            }
+                            this.classList.add('active');
+                        } else {
+                            // Si estamos en otra página y se hace clic en un data-section (ej. Estadísticas desde pacientes.html)
+                            // guardamos la sección y redirigimos a dashboard.html
+                            localStorage.setItem('targetSection', this.getAttribute('data-section'));
+                            window.location.href = 'dashboard.html';
+                        }
+                    });
+                }
+            });
+
+            // Mostrar la sección correcta en dashboard.html (inicio o la guardada en localStorage)
+            if (currentPage === 'dashboard.html' || currentPage === '') {
+                let sectionToDisplay = localStorage.getItem('targetSection');
+                localStorage.removeItem('targetSection'); // Limpiar para futuras navegaciones
+
+                if (!sectionToDisplay) {
+                    sectionToDisplay = 'inicio'; // Por defecto es 'inicio'
+                }
+
+                sections.forEach(section => section.style.display = 'none');
+                sidebarNavLinks.forEach(s_link => s_link.classList.remove('active'));
+
+                const activeSection = document.getElementById(sectionToDisplay + '-section');
+                if (activeSection) {
+                    activeSection.style.display = 'block';
+                }
+                const activeLink = document.querySelector(`.sidebar-nav a[data-section="${sectionToDisplay}"]`);
+                if (activeLink) {
+                    activeLink.classList.add('active');
+                } else { // Fallback para el enlace de inicio si targetSection no es una data-section
+                    const inicioLinkFallback = document.querySelector('.sidebar-nav a[data-section="inicio"]');
+                    if (inicioLinkFallback) inicioLinkFallback.classList.add('active');
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>

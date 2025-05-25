@@ -1,0 +1,317 @@
+/* Estilos generales */
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f4;
+    color: #333;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+header {
+    background-color: #5cb85c; /* Verde nutrición */
+    color: white;
+    padding: 1em 0;
+    text-align: center;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 2em;
+}
+
+nav ul {
+    list-style-type: none;
+    padding: 0;
+    text-align: center;
+    margin-top: 0.5em;
+}
+
+nav ul li {
+    display: inline;
+    margin-right: 20px;
+}
+
+nav ul li a {
+    color: white;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+nav ul li a:hover {
+    text-decoration: underline;
+}
+
+main {
+    flex: 1;
+    padding: 20px;
+    max-width: 1200px;
+    margin: 20px auto;
+    background-color: white;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+section {
+    margin-bottom: 20px;
+}
+
+h2 {
+    color: #5cb85c;
+    border-bottom: 2px solid #5cb85c;
+    padding-bottom: 5px;
+    margin-top: 0;
+}
+
+h3 {
+    color: #333;
+    margin-top: 30px;
+}
+
+h4 {
+    color: #555;
+    margin-top: 20px;
+    margin-bottom: 10px;
+}
+
+/* Formularios */
+form div {
+    margin-bottom: 15px;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="tel"],
+input[type="number"],
+input[type="date"],
+select,
+textarea {
+    width: calc(100% - 22px); /* Ajuste para padding y borde */
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+textarea {
+    min-height: 80px;
+    resize: vertical;
+}
+
+button[type="submit"],
+button[type="button"] {
+    background-color: #5cb85c;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1em;
+    margin-right: 10px;
+}
+
+button[type="submit"]:hover,
+button[type="button"]:hover {
+    background-color: #4cae4c;
+}
+
+button#cancelar-edicion-paciente,
+button#cancelar-edicion-cita {
+    background-color: #f0ad4e; /* Naranja para cancelar */
+}
+button#cancelar-edicion-paciente:hover,
+button#cancelar-edicion-cita:hover {
+    background-color: #eea236;
+}
+
+
+.error-message {
+    color: red;
+    font-size: 0.9em;
+}
+
+/* Tablas o Listados (simulados con divs) */
+.paciente-item, .cita-item {
+    background-color: #f9f9f9;
+    border: 1px solid #eee;
+    padding: 15px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+}
+
+.paciente-item h4, .cita-item h4 {
+    margin-top: 0;
+    color: #5cb85c;
+}
+
+.paciente-item p, .cita-item p {
+    margin: 5px 0;
+}
+
+.paciente-item .acciones button, .cita-item .acciones button {
+    margin-right: 5px;
+    padding: 5px 10px;
+    font-size: 0.9em;
+}
+
+.acciones .delete-btn {
+    background-color: #d9534f; /* Rojo para eliminar */
+}
+.acciones .delete-btn:hover {
+    background-color: #c9302c;
+}
+
+
+footer {
+    text-align: center;
+    padding: 1em 0;
+    background-color: #333;
+    color: white;
+    margin-top: auto; /* Empuja el footer hacia abajo */
+}
+
+/* Estilos para el nuevo Dashboard con Sidebar */
+.dashboard-container {
+    display: flex;
+    min-height: 100vh; 
+}
+
+.sidebar {
+    width: 20%;
+    background-color: #f0f0f0; 
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+}
+
+.sidebar-header h2 {
+    color: #4CAF50; 
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.sidebar-nav ul {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+.sidebar-nav ul li a {
+    display: block;
+    padding: 12px 15px;
+    text-decoration: none;
+    color: #333;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.sidebar-nav ul li a:hover,
+.sidebar-nav ul li a.active {
+    background-color: #4CAF50; 
+    color: white;
+}
+
+.sidebar-footer {
+    margin-top: auto; 
+    padding-top: 20px;
+    border-top: 1px solid #ddd;
+}
+
+.logout-button-sidebar {
+    display: block;
+    width: 100%;
+    padding: 10px 15px;
+    background-color: #e53935; 
+    color: white;
+    border: none;
+    border-radius: 4px;
+    text-align: center;
+    cursor: pointer;
+    font-size: 1em;
+}
+
+.logout-button-sidebar:hover {
+    background-color: #c62828; 
+}
+
+.main-content {
+    width: 80%;
+    padding: 30px;
+    background-color: #ffffff; 
+    overflow-y: auto; 
+}
+
+.welcome-image {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 20px auto;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+/* Responsivo */
+@media (max-width: 768px) {
+    header h1 {
+        font-size: 1.5em;
+    }
+    nav ul li {
+        display: block;
+        margin: 10px 0;
+    }
+    input[type="text"],
+    input[type="password"],
+    input[type="email"],
+    input[type="tel"],
+    input[type="number"],
+    input[type="date"],
+    select,
+    textarea {
+        width: 100%; /* Ocupa todo el ancho en móviles */
+    }
+    main {
+        padding: 10px;
+        margin: 10px;
+    }
+}
+
+/* Utilidades */
+.hidden {
+    display: none;
+}
+span[id^="porc-"] {
+    margin-left: 10px;
+    font-style: italic;
+    color: #777;
+}
+#calorias-totales {
+    font-weight: bold;
+    color: #5cb85c;
+}
+#plan-alimentacion-textareas textarea {
+    margin-top: 5px;
+}
+
+/* Ajustes para que el header y footer originales no interfieran con el nuevo layout del dashboard */
+/* Si el body de dashboard.html tiene una clase específica, por ejemplo 'dashboard-page' */
+body.dashboard-page > header,
+body.dashboard-page > footer {
+    display: none; /* Ocultar header y footer genéricos en la página del dashboard */
+}
+
+/* Específicamente para la página del dashboard, quitamos el flex del body si interfiere */
+body.dashboard-page {
+    display: block; 
+    margin: 0; /* Asegurarse de que no haya márgenes del body */
+    padding: 0; /* Asegurarse de que no haya paddings del body */
+}
