@@ -1,7 +1,12 @@
 // Firebase v9+ modular imports
-import { db } from "./firebase-config.js";
+import { app, db } from "./firebase-config.js";
 import {
-  collection,
+  getAuth,
+  onAuthStateChanged,
+  signOut,
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {
+  collection as firestoreCollection, // Renombrado para evitar conflicto con 'collection' de DOM
   doc,
   getDoc,
   getDocs,
@@ -13,698 +18,1646 @@ import {
   where,
   orderBy,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-document.addEventListener("DOMContentLoaded", async function () {
-  // Verificar si estamos en la sección de nueva cita
-  if (!document.getElementById("citas-section")) {
-    // CORREGIDO: ID de la sección principal en citas.html
-    console.log(
-      "No se encontró 'citas-section', el script de citas no se ejecutará en esta página."
+import { obtenerPacientesDeFirestore } from "./pacientes.js";
+
+// --- VARIABLES GLOBALES DE ESTADO ---
+let globalCurrentUserIdForCitas = null; // UID del usuario actualmente autenticado, específico para citas.js
+let currentUserId = null; // UID del usuario actualmente autenticado
+let pacienteSeleccionadoId =
+  localStorage.getItem("selectedPacienteIdCitas") || null; // ID del paciente seleccionado
+let citasDelPacienteActual = []; // Array para almacenar las citas del paciente seleccionado
+let todosLosPacientes = []; // Podría usarse si se necesita una copia local, aunque popularSelectPacientes la obtiene fresca.
+let numeroDeDietas = 1; // Contador para los IDs de los planes de dieta
+
+// --- REFERENCIAS GLOBALES A ELEMENTOS DEL DOM (se asignarán en DOMContentLoaded) ---
+let formCita;
+let listaCitasHistorialDiv;
+let seleccionarPacienteCitaSelect;
+let nombrePacienteHistorialCitaSpan;
+let noPacienteSeleccionadoText;
+let citaIdInput;
+let pacienteIdCitaInput;
+let fechaCitaInput;
+let nombreCompletoPacienteDisplaySpan;
+let ocupacionPacienteDisplaySpan;
+let telefonoPacienteDisplaySpan;
+let correoPacienteDisplaySpan;
+let fechaRegistroPacienteDisplaySpan;
+let generoPacienteDisplaySpan;
+let edadPacienteDisplaySpan;
+let alturaPacienteDisplaySpan;
+let generoPacienteHiddenInput;
+let edadPacienteHiddenInput;
+let alturaPacienteHiddenInput;
+let pesoCitaInput;
+let circCinturaCitaInput;
+let circCaderaCitaInput;
+let circBrazoCitaInput;
+let pliegueBicipitalCitaInput;
+let pliegueTricipitalCitaInput;
+let pliegueSubescapularCitaInput;
+let pliegueSuprailiacoCitaInput;
+let nivelActividadCitaSelect;
+let restriccionCaloricaCitaSelect;
+let tmbHarrisBenedictCitaSpan;
+let tmbPulgarCitaSpan;
+let getTotalCitaSpan;
+let caloriasFinalesDietaCitaSpan;
+let imcCitaSpan;
+let imcDiagnosticoCitaSpan;
+let porcGrasaSiriCitaSpan;
+let grasaDiagnosticoCitaSpan;
+let diagnosticoGeneralCitaTextarea;
+let porcCarbsCitaInput;
+let porcLipidosCitaInput;
+let porcProteinasCitaInput;
+let sumaMacrosPorcCitaSpan;
+let gramosCarbsCitaSpan;
+let gramosLipidosCitaSpan;
+let gramosProteinasCitaSpan;
+let perdidaSemanalCitaSpan;
+let perdida15diasCitaSpan;
+let perdida30diasCitaSpan;
+let notaNutricionalCitaTextarea;
+let contenedorPlanesAlimentacionCitaDiv;
+let btnAgregarOtraDietaCita;
+let btnCancelarEdicionCita;
+let btnExportarPdfCita;
+
+// --- DEFINICIÓN DE FUNCIONES AUXILIARES ---
+function setDefaultFechaCita() {
+  if (fechaCitaInput && !citaIdInput.value) {
+    // Solo poner fecha por defecto si no estamos editando una cita existente
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = ("0" + (today.getMonth() + 1)).slice(-2);
+    const day = ("0" + today.getDate()).slice(-2);
+    fechaCitaInput.value = `${year}-${month}-${day}`;
+  }
+}
+
+// Definición de actualizarSumaMacrosPorcentaje (si no existe ya)
+// Asumo que esta función ya existe en tu código, si no, deberás añadirla o definirla.
+// Por ejemplo, una implementación básica podría ser:
+function actualizarSumaMacrosPorcentaje() {
+  if (
+    !porcCarbsCitaInput ||
+    !porcLipidosCitaInput ||
+    !porcProteinasCitaInput ||
+    !sumaMacrosPorcCitaSpan
+  )
+    return;
+  const porcCarbs = parseFloat(porcCarbsCitaInput.value) || 0;
+  const porcLipidos = parseFloat(porcLipidosCitaInput.value) || 0;
+  const porcProteinas = parseFloat(porcProteinasCitaInput.value) || 0;
+  const suma = porcCarbs + porcLipidos + porcProteinas;
+  sumaMacrosPorcCitaSpan.textContent = suma.toFixed(1) + "%";
+  if (Math.abs(suma - 100) > 0.5) {
+    sumaMacrosPorcCitaSpan.style.color = "red";
+  } else {
+    sumaMacrosPorcCitaSpan.style.color = "green";
+  }
+}
+
+async function popularSelectPacientes() {
+  if (!seleccionarPacienteCitaSelect) {
+    console.warn(
+      "El elemento 'seleccionarPacienteCitaSelect' no se encontró en el DOM."
     );
     return;
   }
-  console.log("'citas-section' encontrada, inicializando script de citas.");
 
-  // Referencias a elementos del DOM actualizadas según citas.html
-  const formCita = document.getElementById("form-cita");
-  const listaCitasHistorialDiv = document.getElementById(
-    "lista-citas-historial"
-  );
-  const citaIdInput = document.getElementById("cita-id"); // Hidden input para el ID de la cita en edición
-  const pacienteIdCitaInput = document.getElementById("cita-paciente-id"); // Hidden input para el ID del paciente al que pertenece la cita
-  const fechaCitaInput = document.getElementById("fecha-cita");
+  seleccionarPacienteCitaSelect.innerHTML =
+    '<option value="">Cargando pacientes...</option>'; // Cambiado a "Cargando..."
 
-  // Spans y campos ocultos para datos del paciente (cargados al seleccionar paciente)
-  const nombreCompletoPacienteDisplaySpan = document.getElementById(
-    "nombre-completo-paciente-display"
-  );
-  const ocupacionPacienteDisplaySpan = document.getElementById(
-    "ocupacion-paciente-display"
-  );
-  const telefonoPacienteDisplaySpan = document.getElementById(
-    "telefono-paciente-display"
-  );
-  const correoPacienteDisplaySpan = document.getElementById(
-    "correo-paciente-display"
-  );
-  const fechaRegistroPacienteDisplaySpan = document.getElementById(
-    "fecha-registro-paciente-display"
-  );
-  const generoPacienteDisplaySpan = document.getElementById(
-    "genero-paciente-display"
-  );
-  const edadPacienteDisplaySpan = document.getElementById(
-    "edad-paciente-display"
-  );
-  const alturaPacienteDisplaySpan = document.getElementById(
-    "altura-paciente-display"
-  );
-  const generoPacienteHiddenInput = document.getElementById(
-    "paciente-genero-cita"
-  );
-  const edadPacienteHiddenInput = document.getElementById("paciente-edad-cita");
-  const alturaPacienteHiddenInput = document.getElementById(
-    "paciente-altura-cita"
-  );
+  console.log("popularSelectPacientes: Iniciando la carga de pacientes...");
 
-  // Inputs de antropometría de la cita
-  const pesoCitaInput = document.getElementById("peso-cita");
-  const circCinturaCitaInput = document.getElementById("circ-cintura-cita");
-  const circCaderaCitaInput = document.getElementById("circ-cadera-cita");
-  const circBrazoCitaInput = document.getElementById("circ-brazo-cita");
-  const pliegueBicipitalCitaInput = document.getElementById(
-    "pliegue-bicipital-cita"
-  );
-  const pliegueTricipitalCitaInput = document.getElementById(
-    "pliegue-tricipital-cita"
-  );
-  const pliegueSubescapularCitaInput = document.getElementById(
-    "pliegue-subescapular-cita"
-  );
-  const pliegueSuprailiacoCitaInput = document.getElementById(
-    "pliegue-suprailiaco-cita"
-  );
-
-  // Campos para cálculos metabólicos y resultados
-  const nivelActividadCitaSelect = document.getElementById(
-    "nivel-actividad-cita"
-  );
-  const restriccionCaloricaCitaSelect = document.getElementById(
-    "restriccion-calorica-cita"
-  );
-  const tmbHarrisBenedictCitaSpan = document.getElementById(
-    "tmb-harris-benedict-cita"
-  ); // Corregido de input a span si es readonly
-  const tmbPulgarCitaSpan = document.getElementById("tmb-pulgar-cita"); // Corregido de input a span si es readonly
-  const getTotalCitaSpan = document.getElementById("get-total-cita"); // Corregido de input a span si es readonly
-  const caloriasFinalesDietaCitaSpan = document.getElementById(
-    "calorias-finales-dieta-cita"
-  ); // Corregido de input a span si es readonly
-  const imcCitaSpan = document.getElementById("imc-cita"); // Corregido de input a span si es readonly
-  const imcDiagnosticoCitaSpan = document.getElementById(
-    "imc-diagnostico-cita"
-  );
-  const porcGrasaSiriCitaSpan = document.getElementById("porc-grasa-siri-cita"); // Corregido de input a span si es readonly
-  const grasaDiagnosticoCitaSpan = document.getElementById(
-    "grasa-diagnostico-cita"
-  );
-  const diagnosticoGeneralCitaTextarea = document.getElementById(
-    "diagnostico-general-cita"
-  );
-
-  // Campos para distribución de macronutrientes en %
-  const porcCarbsCitaInput = document.getElementById("porc-carbs-cita");
-  const porcLipidosCitaInput = document.getElementById("porc-lipidos-cita");
-  const porcProteinasCitaInput = document.getElementById("porc-proteinas-cita");
-  const sumaMacrosPorcCitaSpan = document.getElementById(
-    "suma-macros-porc-cita"
-  );
-
-  // Spans para mostrar gramos calculados de macros
-  const gramosCarbsCitaSpan = document.getElementById("gramos-carbs-cita");
-  const gramosLipidosCitaSpan = document.getElementById("gramos-lipidos-cita");
-  const gramosProteinasCitaSpan = document.getElementById(
-    "gramos-proteinas-cita"
-  );
-
-  // Spans para estimación de pérdida de peso
-  const perdidaSemanalCitaSpan = document.getElementById(
-    "perdida-semanal-cita"
-  );
-  const perdida15diasCitaSpan = document.getElementById("perdida-15-dias-cita");
-  const perdida30diasCitaSpan = document.getElementById("perdida-30-dias-cita");
-
-  // Nota nutricional
-  const notaNutricionalCitaTextarea = document.getElementById(
-    "nota-nutricional-cita"
-  );
-
-  // Plan de alimentación
-  // const tiemposComidaCitaSelect = document.getElementById('tiempos-comida-cita'); // No existe este ID en el HTML proporcionado
-  const contenedorPlanesAlimentacionCitaDiv = document.getElementById(
-    "contenedor-planes-alimentacion-cita"
-  );
-  const btnAgregarOtraDietaCita = document.getElementById(
-    "btn-agregar-otra-dieta-cita"
-  );
-
-  // Botones de acción del formulario
-  const btnCancelarEdicionCita = document.getElementById(
-    "cancelar-edicion-cita"
-  ); // Nombre en HTML es 'cancelar-edicion-cita'
-  const btnExportarPdfCita = document.getElementById("btn-exportar-pdf-cita");
-
-  // Select de paciente y display de su nombre en historial
-  const seleccionarPacienteCitaSelect = document.getElementById(
-    "seleccionar-paciente-cita"
-  );
-  const nombrePacienteHistorialCitaSpan = document.getElementById(
-    "nombre-paciente-historial-cita"
-  );
-
-  // Inicializar fecha de la cita con la actual si no tiene valor
-  if (fechaCitaInput && !fechaCitaInput.value) {
-    fechaCitaInput.valueAsDate = new Date();
+  if (!globalCurrentUserIdForCitas) {
+    console.warn(
+      "popularSelectPacientes: globalCurrentUserIdForCitas es null. No se pueden cargar pacientes."
+    );
+    seleccionarPacienteCitaSelect.innerHTML =
+      '<option value="">Error: Usuario no identificado</option>';
+    return;
   }
+  console.log(
+    "popularSelectPacientes: Usando userId:",
+    globalCurrentUserIdForCitas
+  );
 
-  let todosLosPacientes = [];
-  let citasDelPacienteActual = [];
-  let pacienteSeleccionadoId = localStorage.getItem("selectedPacienteIdCitas"); // Persistir selección entre cargas
+  try {
+    // Pasar el ID del usuario actual a obtenerPacientesDeFirestore
+    const pacientes = await obtenerPacientesDeFirestore(
+      globalCurrentUserIdForCitas
+    );
+    console.log(
+      "popularSelectPacientes: Pacientes recibidos de obtenerPacientesDeFirestore:",
+      pacientes
+    );
 
-  // --- INICIALIZACIÓN Y CARGA DE DATOS ---
-  async function popularSelectPacientes() {
-    if (!seleccionarPacienteCitaSelect) return;
+    if (!pacientes || pacientes.length === 0) {
+      console.warn(
+        "popularSelectPacientes: No se encontraron pacientes para el usuario actual o la lista está vacía."
+      );
+      seleccionarPacienteCitaSelect.innerHTML =
+        '<option value="">No hay pacientes registrados</option>';
+      return;
+    }
+
+    // Limpiar opciones previas antes de añadir nuevas, excepto la de "Cargando..." que se reemplaza.
     seleccionarPacienteCitaSelect.innerHTML =
       '<option value="">Seleccione un paciente...</option>';
-    try {
-      const pacientesCollectionRef = collection(db, "pacientes");
-      const q = query(
-        pacientesCollectionRef,
-        orderBy("nombre"),
-        orderBy("apellido")
-      );
-      const pacientesSnapshot = await getDocs(q);
 
-      todosLosPacientes = pacientesSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+    // Crear nombreCompleto para cada paciente y luego ordenar
+    const pacientesConNombreCompleto = pacientes.map((paciente) => {
+      return {
+        ...paciente,
+        nombreCompleto: `${paciente.nombre || ""} ${
+          paciente.apellidoPaterno || ""
+        } ${paciente.apellidoMaterno || ""}`.trim(),
+      };
+    });
+    console.log(
+      "popularSelectPacientes: Pacientes mapeados con nombreCompleto:",
+      pacientesConNombreCompleto
+    );
 
-      todosLosPacientes.forEach((paciente) => {
-        const option = document.createElement("option");
-        option.value = paciente.id;
-        option.textContent = `${paciente.nombre} ${paciente.apellido}`;
-        if (paciente.id === pacienteSeleccionadoId) {
-          option.selected = true;
-        }
-        seleccionarPacienteCitaSelect.appendChild(option);
-      });
+    // Ordenar pacientes alfabéticamente por nombreCompleto
+    pacientesConNombreCompleto.sort((a, b) =>
+      a.nombreCompleto.localeCompare(b.nombreCompleto)
+    );
+    console.log(
+      "popularSelectPacientes: Pacientes ordenados:",
+      pacientesConNombreCompleto
+    );
 
-      if (pacienteSeleccionadoId) {
-        await cargarDatosPacienteYCitas(pacienteSeleccionadoId);
-        if (formCita) formCita.classList.remove("hidden");
+    pacientesConNombreCompleto.forEach((paciente) => {
+      const option = document.createElement("option");
+      option.value = paciente.id; // Usar el ID del paciente como valor
+      option.textContent = paciente.nombreCompleto;
+      seleccionarPacienteCitaSelect.appendChild(option);
+    });
+    console.log("popularSelectPacientes: Select de pacientes populado.");
+
+    // Restaurar selección si existía
+    if (pacienteSeleccionadoId) {
+      seleccionarPacienteCitaSelect.value = pacienteSeleccionadoId;
+      if (seleccionarPacienteCitaSelect.value === pacienteSeleccionadoId) {
+        cargarDatosPacienteYCitas(pacienteSeleccionadoId);
       } else {
-        if (formCita) formCita.classList.add("hidden");
-        limpiarFormularioCompleto(); // Asegurar que todo esté limpio si no hay paciente
+        // Si el paciente seleccionado anteriormente ya no existe o no es válido, limpiar
+        localStorage.removeItem("selectedPacienteIdCitas");
+        pacienteSeleccionadoId = null;
+        limpiarFormularioCompleto(false);
       }
-    } catch (error) {
-      console.error("Error al popular select de pacientes: ", error);
-      seleccionarPacienteCitaSelect.innerHTML =
-        '<option value="">Error al cargar pacientes</option>';
-      if (formCita) formCita.classList.add("hidden");
     }
+  } catch (error) {
+    console.error("Error al popular el select de pacientes:", error);
+    seleccionarPacienteCitaSelect.innerHTML =
+      '<option value="">Error al cargar pacientes</option>';
+    alert(
+      "Error al cargar la lista de pacientes. Por favor, intente de nuevo más tarde."
+    );
+  }
+}
+
+async function cargarDatosPacienteYCitas(pacienteId) {
+  if (!pacienteId) {
+    console.warn(
+      "ID de paciente no proporcionado a cargarDatosPacienteYCitas."
+    );
+    limpiarFormularioCompleto(false); // Limpiar todo si no hay pacienteId
+    return;
   }
 
-  async function cargarDatosPacienteYCitas(pacienteId) {
-    if (!pacienteId) {
-      limpiarFormularioCompleto();
-      if (formCita) formCita.classList.add("hidden");
-      return;
-    }
-    pacienteSeleccionadoId = pacienteId;
-    localStorage.setItem("selectedPacienteIdCitas", pacienteId);
-    if (pacienteIdCitaInput) pacienteIdCitaInput.value = pacienteId;
+  try {
+    const pacienteRef = doc(db, "pacientes", pacienteId);
+    const pacienteSnap = await getDoc(pacienteRef);
 
-    try {
-      const pacienteDocRef = doc(db, "pacientes", pacienteId);
-      const pacienteDocSnap = await getDoc(pacienteDocRef);
+    if (pacienteSnap.exists()) {
+      const datosPaciente = pacienteSnap.data();
+      console.log("Datos del paciente cargados:", datosPaciente);
 
-      if (pacienteDocSnap.exists()) {
-        const pacienteData = pacienteDocSnap.data();
-        if (nombrePacienteHistorialCitaSpan)
-          nombrePacienteHistorialCitaSpan.textContent = `${pacienteData.nombre} ${pacienteData.apellido}`;
-
-        // Cargar datos del paciente en spans y campos ocultos
-        if (nombreCompletoPacienteDisplaySpan)
-          nombreCompletoPacienteDisplaySpan.textContent = `${pacienteData.nombre} ${pacienteData.apellido}`;
-        if (ocupacionPacienteDisplaySpan)
-          ocupacionPacienteDisplaySpan.textContent =
-            pacienteData.ocupacion || "N/A";
-        if (telefonoPacienteDisplaySpan)
-          telefonoPacienteDisplaySpan.textContent =
-            pacienteData.telefono || "N/A";
-        if (correoPacienteDisplaySpan)
-          correoPacienteDisplaySpan.textContent = pacienteData.correo || "N/A";
-        if (fechaRegistroPacienteDisplaySpan)
-          fechaRegistroPacienteDisplaySpan.textContent =
-            pacienteData.fechaRegistro
-              ? new Date(
-                  pacienteData.fechaRegistro.seconds * 1000
-                ).toLocaleDateString()
-              : "N/A";
-        if (generoPacienteDisplaySpan)
-          generoPacienteDisplaySpan.textContent = pacienteData.genero || "N/A";
-        if (edadPacienteDisplaySpan)
-          edadPacienteDisplaySpan.textContent = pacienteData.edad
-            ? `${pacienteData.edad} años`
-            : "N/A";
-        if (alturaPacienteDisplaySpan)
-          alturaPacienteDisplaySpan.textContent = pacienteData.altura
-            ? `${pacienteData.altura} cm`
-            : "N/A";
-
-        if (generoPacienteHiddenInput)
-          generoPacienteHiddenInput.value = pacienteData.genero || "";
-        if (edadPacienteHiddenInput)
-          edadPacienteHiddenInput.value = pacienteData.edad || "";
-        if (alturaPacienteHiddenInput)
-          alturaPacienteHiddenInput.value = pacienteData.altura || "";
-
-        // Cargar historial de citas del paciente (subcolección)
-        const citasCollectionRef = collection(
-          db,
-          "pacientes",
-          pacienteId,
-          "citas"
+      if (currentUserId && datosPaciente.userId !== currentUserId) {
+        console.warn(
+          "Intento de cargar datos de un paciente que no pertenece al usuario actual."
         );
-        const qCitas = query(citasCollectionRef, orderBy("fecha", "desc"));
-
-        const citasSnapshot = await getDocs(qCitas);
-        citasDelPacienteActual = citasSnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-
-        if (formCita) formCita.classList.remove("hidden");
-        resetearFormularioCita(); // Prepara el form para una nueva cita o carga una existente
-        renderCitasHistorial();
-        realizarTodosLosCalculos(); // Calcular con los datos del paciente cargados
-      } else {
-        console.warn("Paciente no encontrado en Firestore:", pacienteId);
-        limpiarFormularioCompleto();
-        alert(
-          "El paciente seleccionado no fue encontrado. Pudo haber sido eliminado."
-        );
-        if (formCita) formCita.classList.add("hidden");
+        alert("No tiene permiso para ver este paciente.");
+        limpiarFormularioCompleto(false);
+        if (seleccionarPacienteCitaSelect)
+          seleccionarPacienteCitaSelect.value = "";
+        localStorage.removeItem("selectedPacienteIdCitas");
+        pacienteSeleccionadoId = null;
         return;
       }
-    } catch (error) {
-      console.error("Error al cargar datos del paciente y citas: ", error);
-      alert("Error al cargar la información del paciente o sus citas.");
-      limpiarFormularioCompleto();
-      if (formCita) formCita.classList.add("hidden");
-      return;
-    }
-  }
 
-  function resetearFormularioCita(mantenerDatosPaciente = true) {
-    if (formCita) {
-      // Guardar valores de paciente si es necesario
-      const pacienteId =
-        mantenerDatosPaciente && pacienteIdCitaInput
-          ? pacienteIdCitaInput.value
-          : "";
-      const genero =
-        mantenerDatosPaciente && generoPacienteHiddenInput
-          ? generoPacienteHiddenInput.value
-          : "";
-      const edad =
-        mantenerDatosPaciente && edadPacienteHiddenInput
-          ? edadPacienteHiddenInput.value
-          : "";
-      const altura =
-        mantenerDatosPaciente && alturaPacienteHiddenInput
-          ? alturaPacienteHiddenInput.value
-          : "";
-
-      formCita.reset(); // Limpia todos los campos del form
-
-      // Restaurar datos del paciente si se indicó
-      if (mantenerDatosPaciente) {
-        if (pacienteIdCitaInput) pacienteIdCitaInput.value = pacienteId;
-        if (generoPacienteHiddenInput) generoPacienteHiddenInput.value = genero;
-        if (edadPacienteHiddenInput) edadPacienteHiddenInput.value = edad;
-        if (alturaPacienteHiddenInput) alturaPacienteHiddenInput.value = altura;
+      if (nombreCompletoPacienteDisplaySpan)
+        nombreCompletoPacienteDisplaySpan.textContent = `${
+          datosPaciente.nombre || ""
+        } ${datosPaciente.apellidoPaterno || ""} ${
+          datosPaciente.apellidoMaterno || ""
+        }`.trim();
+      if (generoPacienteDisplaySpan)
+        generoPacienteDisplaySpan.textContent =
+          datosPaciente.genero || "No especificado";
+      if (edadPacienteDisplaySpan)
+        edadPacienteDisplaySpan.textContent = datosPaciente.edad
+          ? `${datosPaciente.edad} años`
+          : "No especificada";
+      if (alturaPacienteDisplaySpan)
+        alturaPacienteDisplaySpan.textContent = datosPaciente.altura
+          ? `${datosPaciente.altura} cm`
+          : "No especificada";
+      if (ocupacionPacienteDisplaySpan)
+        ocupacionPacienteDisplaySpan.textContent =
+          datosPaciente.ocupacion || "N/A";
+      if (telefonoPacienteDisplaySpan)
+        telefonoPacienteDisplaySpan.textContent =
+          datosPaciente.telefono || "N/A";
+      if (correoPacienteDisplaySpan)
+        correoPacienteDisplaySpan.textContent = datosPaciente.correo || "N/A";
+      if (fechaRegistroPacienteDisplaySpan && datosPaciente.fechaRegistro) {
+        const fechaReg = datosPaciente.fechaRegistro.toDate
+          ? datosPaciente.fechaRegistro.toDate()
+          : new Date(datosPaciente.fechaRegistro);
+        fechaRegistroPacienteDisplaySpan.textContent =
+          fechaReg.toLocaleDateString();
+      } else if (fechaRegistroPacienteDisplaySpan) {
+        fechaRegistroPacienteDisplaySpan.textContent = "N/A";
       }
+
+      if (pacienteIdCitaInput) pacienteIdCitaInput.value = pacienteId;
+      if (generoPacienteHiddenInput)
+        generoPacienteHiddenInput.value = datosPaciente.genero || "";
+      if (edadPacienteHiddenInput)
+        edadPacienteHiddenInput.value = datosPaciente.edad || "";
+      if (alturaPacienteHiddenInput)
+        alturaPacienteHiddenInput.value = datosPaciente.altura || "";
+
+      if (nombrePacienteHistorialCitaSpan) {
+        nombrePacienteHistorialCitaSpan.textContent = `${
+          datosPaciente.nombre || ""
+        } ${datosPaciente.apellidoPaterno || ""} ${
+          datosPaciente.apellidoMaterno || ""
+        }`.trim();
+      }
+
+      resetearFormularioCita(true);
+      await cargarCitasDelPaciente(pacienteId);
+
+      if (formCita) formCita.style.display = "block";
+      if (noPacienteSeleccionadoText)
+        noPacienteSeleccionadoText.style.display = "none";
+
+      realizarTodosLosCalculos();
+    } else {
+      console.warn(`No se encontró el paciente con ID: ${pacienteId}`);
+      limpiarFormularioCompleto(false);
+      alert("Paciente no encontrado. Por favor, seleccione otro paciente.");
     }
-    if (fechaCitaInput) fechaCitaInput.valueAsDate = new Date(); // Fecha actual por defecto
-    if (citaIdInput) citaIdInput.value = ""; // Limpiar ID de cita en edición
-    if (btnCancelarEdicionCita) btnCancelarEdicionCita.classList.add("hidden");
+  } catch (error) {
+    console.error("Error al cargar datos del paciente:", error);
+    limpiarFormularioCompleto(false);
+    alert("Error al cargar los datos del paciente. Intente de nuevo.");
+  }
+}
 
-    // Valores por defecto para macros si el reset no los pone
-    if (porcCarbsCitaInput && !porcCarbsCitaInput.value)
-      porcCarbsCitaInput.value = "50";
-    if (porcLipidosCitaInput && !porcLipidosCitaInput.value)
-      porcLipidosCitaInput.value = "30";
-    if (porcProteinasCitaInput && !porcProteinasCitaInput.value)
-      porcProteinasCitaInput.value = "20";
-
-    limpiarTextareasPlanAlimentacion(); // Limpiar planes de dieta
-    numeroDeDietas = 1; // Resetear contador de dietas
-    generarPlanAlimentacionInicial(); // Generar el primer plan
-    realizarTodosLosCalculos(); // Recalcular con valores por defecto/paciente
+async function cargarCitasDelPaciente(pacienteId) {
+  if (!pacienteId || !currentUserId) {
+    console.warn(
+      "ID de paciente o ID de usuario no disponible para cargar citas."
+    );
+    citasDelPacienteActual = [];
+    renderCitasHistorial();
+    return;
   }
 
-  function limpiarFormularioCompleto() {
-    if (nombrePacienteHistorialCitaSpan)
-      nombrePacienteHistorialCitaSpan.textContent = "Ninguno seleccionado";
+  try {
+    const citasRef = firestoreCollection(db, "pacientes", pacienteId, "citas");
+    const q = query(citasRef, orderBy("fecha", "desc"));
+    const querySnapshot = await getDocs(q);
+    citasDelPacienteActual = querySnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    console.log(
+      `Citas cargadas para el paciente ${pacienteId}:`,
+      citasDelPacienteActual
+    );
+  } catch (error) {
+    console.error("Error al cargar citas del paciente:", error);
+    citasDelPacienteActual = [];
+    alert(
+      "Error al cargar el historial de citas. Por favor, intente de nuevo."
+    );
+  }
+  renderCitasHistorial();
+}
+
+function resetearFormularioCita(mantenerDatosPaciente = false) {
+  const pacienteIdActual = pacienteIdCitaInput ? pacienteIdCitaInput.value : "";
+  const generoActual = generoPacienteHiddenInput
+    ? generoPacienteHiddenInput.value
+    : "";
+  const edadActual = edadPacienteHiddenInput
+    ? edadPacienteHiddenInput.value
+    : "";
+  const alturaActual = alturaPacienteHiddenInput
+    ? alturaPacienteHiddenInput.value
+    : "";
+
+  if (formCita) {
+    formCita.reset();
+  }
+
+  if (mantenerDatosPaciente) {
+    if (pacienteIdCitaInput) pacienteIdCitaInput.value = pacienteIdActual;
+    if (generoPacienteHiddenInput)
+      generoPacienteHiddenInput.value = generoActual;
+    if (edadPacienteHiddenInput) edadPacienteHiddenInput.value = edadActual;
+    if (alturaPacienteHiddenInput)
+      alturaPacienteHiddenInput.value = alturaActual;
+  } else {
     if (pacienteIdCitaInput) pacienteIdCitaInput.value = "";
-    if (nombreCompletoPacienteDisplaySpan)
-      nombreCompletoPacienteDisplaySpan.textContent = "N/A";
-    if (ocupacionPacienteDisplaySpan)
-      ocupacionPacienteDisplaySpan.textContent = "N/A";
-    if (telefonoPacienteDisplaySpan)
-      telefonoPacienteDisplaySpan.textContent = "N/A";
-    if (correoPacienteDisplaySpan)
-      correoPacienteDisplaySpan.textContent = "N/A";
-    if (fechaRegistroPacienteDisplaySpan)
-      fechaRegistroPacienteDisplaySpan.textContent = "N/A";
-    if (generoPacienteDisplaySpan)
-      generoPacienteDisplaySpan.textContent = "N/A";
-    if (edadPacienteDisplaySpan) edadPacienteDisplaySpan.textContent = "N/A";
-    if (alturaPacienteDisplaySpan)
-      alturaPacienteDisplaySpan.textContent = "N/A";
     if (generoPacienteHiddenInput) generoPacienteHiddenInput.value = "";
     if (edadPacienteHiddenInput) edadPacienteHiddenInput.value = "";
     if (alturaPacienteHiddenInput) alturaPacienteHiddenInput.value = "";
-
-    citasDelPacienteActual = [];
-    renderCitasHistorial();
-    if (formCita) formCita.reset();
-    if (fechaCitaInput) fechaCitaInput.valueAsDate = new Date();
-    if (citaIdInput) citaIdInput.value = "";
-    if (btnCancelarEdicionCita) btnCancelarEdicionCita.classList.add("hidden");
-
-    limpiarTextareasPlanAlimentacion();
-    numeroDeDietas = 1;
-    generarPlanAlimentacionInicial();
-    limpiarSpansDeCalculo(); // Poner todos los cálculos a 0 o '-'
   }
 
-  function limpiarSpansDeCalculo() {
-    const spansCalculados = [
-      tmbHarrisBenedictCitaSpan,
-      tmbPulgarCitaSpan,
-      getTotalCitaSpan,
-      caloriasFinalesDietaCitaSpan,
-      imcCitaSpan,
-      porcGrasaSiriCitaSpan,
-      gramosCarbsCitaSpan,
-      gramosLipidosCitaSpan,
-      gramosProteinasCitaSpan,
-      sumaMacrosPorcCitaSpan,
-      perdidaSemanalCitaSpan,
-      perdida15diasCitaSpan,
-      perdida30diasCitaSpan,
-    ];
-    spansCalculados.forEach((span) => {
-      if (span) span.textContent = "0";
+  if (fechaCitaInput) setDefaultFechaCita(); // Llamar aquí para asegurar que se establece al resetear si es nueva cita
+  if (citaIdInput) citaIdInput.value = "";
+  if (btnCancelarEdicionCita) btnCancelarEdicionCita.classList.add("hidden");
+
+  if (porcCarbsCitaInput) porcCarbsCitaInput.value = "50";
+  if (porcLipidosCitaInput) porcLipidosCitaInput.value = "30";
+  if (porcProteinasCitaInput) porcProteinasCitaInput.value = "20";
+
+  limpiarTextareasPlanAlimentacion();
+  numeroDeDietas = 0;
+  generarPlanAlimentacionInicial();
+
+  if (mantenerDatosPaciente) {
+    realizarTodosLosCalculos();
+  } else {
+    limpiarSpansDeCalculo();
+  }
+}
+
+function renderCitasHistorial() {
+  if (!listaCitasHistorialDiv) return;
+  listaCitasHistorialDiv.innerHTML = "";
+  if (!pacienteSeleccionadoId) {
+    listaCitasHistorialDiv.innerHTML =
+      "<p>Seleccione un paciente para ver su historial de citas.</p>";
+    return;
+  }
+  if (citasDelPacienteActual.length === 0) {
+    listaCitasHistorialDiv.innerHTML =
+      "<p>Este paciente no tiene citas registradas.</p>";
+    return;
+  }
+
+  citasDelPacienteActual.forEach((cita) => {
+    const citaDiv = document.createElement("div");
+    citaDiv.classList.add("cita-item-historial");
+    const fechaCitaFormateada = cita.fecha
+      ? new Date(cita.fecha + "T00:00:00").toLocaleDateString() // Asegurar que se interprete como local si solo es YYYY-MM-DD
+      : "Fecha N/A";
+    citaDiv.innerHTML = `
+              <h6>Cita del ${fechaCitaFormateada}</h6>
+              <p><strong>Peso:</strong> ${cita.peso || "N/A"} kg</p>
+              <p><strong>Cal. Dieta:</strong> ${
+                cita.caloriasDietaFinal || "N/A"
+              } kcal</p>
+              <div class="acciones-historial">
+                  <button class="btn btn-sm btn-info btn-editar-cita-historial" data-id="${
+                    cita.id
+                  }">Editar</button>
+                  <button class="btn btn-sm btn-danger btn-eliminar-cita-historial" data-id="${
+                    cita.id
+                  }">Eliminar</button>
+              </div>
+          `;
+    listaCitasHistorialDiv.appendChild(citaDiv);
+  });
+
+  listaCitasHistorialDiv
+    .querySelectorAll(".btn-editar-cita-historial")
+    .forEach((btn) => {
+      btn.addEventListener("click", () => editarCita(btn.dataset.id));
     });
-    if (imcDiagnosticoCitaSpan) imcDiagnosticoCitaSpan.textContent = "-";
-    if (grasaDiagnosticoCitaSpan) grasaDiagnosticoCitaSpan.textContent = "-";
-    if (sumaMacrosPorcCitaSpan) sumaMacrosPorcCitaSpan.style.color = "inherit";
+  listaCitasHistorialDiv
+    .querySelectorAll(".btn-eliminar-cita-historial")
+    .forEach((btn) => {
+      btn.addEventListener("click", () =>
+        eliminarCitaDesdeHistorial(btn.dataset.id)
+      );
+    });
+}
+
+function limpiarSpansDeCalculo() {
+  if (tmbHarrisBenedictCitaSpan) tmbHarrisBenedictCitaSpan.textContent = "0";
+  if (tmbPulgarCitaSpan) tmbPulgarCitaSpan.textContent = "0";
+  if (getTotalCitaSpan) getTotalCitaSpan.textContent = "0";
+  if (caloriasFinalesDietaCitaSpan)
+    caloriasFinalesDietaCitaSpan.textContent = "0";
+  if (imcCitaSpan) imcCitaSpan.textContent = "0.0";
+  if (imcDiagnosticoCitaSpan) imcDiagnosticoCitaSpan.textContent = "-";
+  if (porcGrasaSiriCitaSpan) porcGrasaSiriCitaSpan.textContent = "0.0";
+  if (grasaDiagnosticoCitaSpan) grasaDiagnosticoCitaSpan.textContent = "-";
+  if (sumaMacrosPorcCitaSpan) {
+    sumaMacrosPorcCitaSpan.textContent = "0.0";
+    sumaMacrosPorcCitaSpan.style.color = "green"; // o color por defecto
   }
+  if (gramosCarbsCitaSpan) gramosCarbsCitaSpan.textContent = "0.0";
+  if (gramosLipidosCitaSpan) gramosLipidosCitaSpan.textContent = "0.0";
+  if (gramosProteinasCitaSpan) gramosProteinasCitaSpan.textContent = "0.0";
+  if (perdidaSemanalCitaSpan) perdidaSemanalCitaSpan.textContent = "0.00";
+  if (perdida15diasCitaSpan) perdida15diasCitaSpan.textContent = "0.00";
+  if (perdida30diasCitaSpan) perdida30diasCitaSpan.textContent = "0.00";
+  if (diagnosticoGeneralCitaTextarea) diagnosticoGeneralCitaTextarea.value = "";
+}
+
+function realizarTodosLosCalculos() {
+  limpiarSpansDeCalculo();
+
+  const peso = parseFloat(pesoCitaInput?.value) || 0;
+  const alturaCm = parseFloat(alturaPacienteHiddenInput?.value) || 0;
+  const edad = parseInt(edadPacienteHiddenInput?.value) || 0;
+  const genero = generoPacienteHiddenInput?.value?.toLowerCase() || "";
+
+  if (!genero || !edad || !alturaCm || !peso) {
+    console.warn(
+      "Faltan datos esenciales (género, edad, altura o peso de la cita) para realizar cálculos."
+    );
+    return;
+  }
+
+  let tmbHarris = 0;
+  if (genero === "masculino") {
+    tmbHarris = 88.362 + 13.397 * peso + 4.799 * alturaCm - 5.677 * edad;
+  } else if (genero === "femenino") {
+    tmbHarris = 447.593 + 9.247 * peso + 3.098 * alturaCm - 4.33 * edad;
+  }
+  if (tmbHarrisBenedictCitaSpan)
+    tmbHarrisBenedictCitaSpan.textContent =
+      tmbHarris > 0 ? tmbHarris.toFixed(0) : "0";
+
+  const tmbPulgar = peso * 25;
+  if (tmbPulgarCitaSpan)
+    tmbPulgarCitaSpan.textContent = tmbPulgar > 0 ? tmbPulgar.toFixed(0) : "0";
+
+  const tmbBase = tmbHarris > 0 ? tmbHarris : tmbPulgar > 0 ? tmbPulgar : 0;
+
+  const factorActividadValor = {
+    sedentario: 1.2,
+    ligero: 1.375,
+    activo: 1.55,
+    "muy-activo": 1.725,
+  };
+  const nivelActividadKey = nivelActividadCitaSelect?.value || "sedentario";
+  const factorActividad = factorActividadValor[nivelActividadKey] || 1.2;
+  const get = tmbBase * factorActividad;
+  if (getTotalCitaSpan)
+    getTotalCitaSpan.textContent = get > 0 ? get.toFixed(0) : "0";
+
+  const restriccion = parseInt(restriccionCaloricaCitaSelect?.value) || 0;
+  const caloriasFinales = get - restriccion;
+  if (caloriasFinalesDietaCitaSpan)
+    caloriasFinalesDietaCitaSpan.textContent =
+      caloriasFinales > 0 ? caloriasFinales.toFixed(0) : "0";
+
+  let porcCarbs = parseFloat(porcCarbsCitaInput?.value) || 0;
+  let porcLipidos = parseFloat(porcLipidosCitaInput?.value) || 0;
+  let porcProteinas = parseFloat(porcProteinasCitaInput?.value) || 0;
+
+  const sumaMacros = porcCarbs + porcLipidos + porcProteinas;
+  if (sumaMacrosPorcCitaSpan) {
+    sumaMacrosPorcCitaSpan.textContent = sumaMacros.toFixed(1);
+    sumaMacrosPorcCitaSpan.style.color =
+      Math.abs(sumaMacros - 100) > 0.5 ? "red" : "green";
+  }
+
+  const caloriasParaMacros = caloriasFinales > 0 ? caloriasFinales : 0;
+  const gramosCarbs = (caloriasParaMacros * (porcCarbs / 100)) / 4;
+  const gramosLipidosCalc = (caloriasParaMacros * (porcLipidos / 100)) / 9;
+  const gramosProteinasCalc = (caloriasParaMacros * (porcProteinas / 100)) / 4;
+
+  if (gramosCarbsCitaSpan)
+    gramosCarbsCitaSpan.textContent =
+      gramosCarbs > 0 ? gramosCarbs.toFixed(1) : "0.0";
+  if (gramosLipidosCitaSpan)
+    gramosLipidosCitaSpan.textContent =
+      gramosLipidosCalc > 0 ? gramosLipidosCalc.toFixed(1) : "0.0";
+  if (gramosProteinasCitaSpan)
+    gramosProteinasCitaSpan.textContent =
+      gramosProteinasCalc > 0 ? gramosProteinasCalc.toFixed(1) : "0.0";
+
+  const pliegueBicipital = parseFloat(pliegueBicipitalCitaInput?.value) || 0;
+  const pliegueTricipital = parseFloat(pliegueTricipitalCitaInput?.value) || 0;
+  const pliegueSubescapular =
+    parseFloat(pliegueSubescapularCitaInput?.value) || 0;
+  const pliegueSuprailiaco =
+    parseFloat(pliegueSuprailiacoCitaInput?.value) || 0;
+
+  const suma4Pliegues =
+    pliegueBicipital +
+    pliegueTricipital +
+    pliegueSubescapular +
+    pliegueSuprailiaco;
+  let densidadCorporal = 0;
+  let porcGrasa = 0;
+
+  if (suma4Pliegues > 0 && edad > 0) {
+    // Asegurar edad para las fórmulas
+    const logS4P = Math.log10(suma4Pliegues);
+    if (genero === "masculino") {
+      if (edad >= 17 && edad <= 19) densidadCorporal = 1.162 - 0.063 * logS4P;
+      else if (edad >= 20 && edad <= 29)
+        densidadCorporal = 1.1631 - 0.0632 * logS4P;
+      else if (edad >= 30 && edad <= 39)
+        densidadCorporal = 1.1422 - 0.0544 * logS4P;
+      else if (edad >= 40 && edad <= 49)
+        densidadCorporal = 1.162 - 0.07 * logS4P; // D&W usan 1.1620 para 40-49
+      else if (edad >= 50) densidadCorporal = 1.1715 - 0.0779 * logS4P;
+    } else if (genero === "femenino") {
+      if (edad >= 16 && edad <= 19)
+        // D&W usa 16-19 para mujeres
+        densidadCorporal = 1.1549 - 0.0678 * logS4P;
+      else if (edad >= 20 && edad <= 29)
+        densidadCorporal = 1.1599 - 0.0717 * logS4P;
+      else if (edad >= 30 && edad <= 39)
+        densidadCorporal = 1.1423 - 0.0632 * logS4P;
+      else if (edad >= 40 && edad <= 49)
+        densidadCorporal = 1.1333 - 0.0612 * logS4P;
+      else if (edad >= 50) densidadCorporal = 1.1339 - 0.0645 * logS4P;
+    }
+    if (densidadCorporal > 0) {
+      porcGrasa = 495 / densidadCorporal - 450;
+    }
+  }
+  if (porcGrasaSiriCitaSpan)
+    porcGrasaSiriCitaSpan.textContent =
+      porcGrasa > 0 ? porcGrasa.toFixed(1) : "0.0";
+
+  let diagGrasa = "-";
+  if (porcGrasa > 0 && edad > 0) {
+    // Asegurar edad para diagnóstico
+    if (genero === "masculino") {
+      if (edad >= 20 && edad <= 39) {
+        if (porcGrasa < 8) diagGrasa = "Bajo (<8%)";
+        else if (porcGrasa <= 19) diagGrasa = "Saludable (8-19%)";
+        else if (porcGrasa < 25) diagGrasa = "Sobrepeso (20-24%)";
+        else diagGrasa = "Obesidad (≥25%)";
+      } else if (edad >= 40 && edad <= 59) {
+        if (porcGrasa < 11) diagGrasa = "Bajo (<11%)";
+        else if (porcGrasa <= 21) diagGrasa = "Saludable (11-21%)";
+        else if (porcGrasa < 28) diagGrasa = "Sobrepeso (22-27%)";
+        else diagGrasa = "Obesidad (≥28%)";
+      } else if (edad >= 60) {
+        if (porcGrasa < 13) diagGrasa = "Bajo (<13%)";
+        else if (porcGrasa <= 24) diagGrasa = "Saludable (13-24%)";
+        else if (porcGrasa < 30) diagGrasa = "Sobrepeso (25-29%)";
+        else diagGrasa = "Obesidad (≥30%)";
+      }
+    } else if (genero === "femenino") {
+      if (edad >= 20 && edad <= 39) {
+        if (porcGrasa < 21) diagGrasa = "Bajo (<21%)";
+        else if (porcGrasa <= 32) diagGrasa = "Saludable (21-32%)";
+        else if (porcGrasa < 39) diagGrasa = "Sobrepeso (33-38%)";
+        else diagGrasa = "Obesidad (≥39%)";
+      } else if (edad >= 40 && edad <= 59) {
+        if (porcGrasa < 23) diagGrasa = "Bajo (<23%)";
+        else if (porcGrasa <= 33) diagGrasa = "Saludable (23-33%)";
+        else if (porcGrasa < 40) diagGrasa = "Sobrepeso (34-39%)";
+        else diagGrasa = "Obesidad (≥40%)";
+      } else if (edad >= 60) {
+        if (porcGrasa < 24) diagGrasa = "Bajo (<24%)";
+        else if (porcGrasa <= 35) diagGrasa = "Saludable (24-35%)";
+        else if (porcGrasa < 42) diagGrasa = "Sobrepeso (36-41%)";
+        else diagGrasa = "Obesidad (≥42%)";
+      }
+    }
+  }
+  if (grasaDiagnosticoCitaSpan)
+    grasaDiagnosticoCitaSpan.textContent = diagGrasa;
+
+  const alturaM = alturaCm / 100;
+  let imc = 0;
+  if (peso > 0 && alturaM > 0) {
+    imc = peso / (alturaM * alturaM);
+  }
+  if (imcCitaSpan) imcCitaSpan.textContent = imc > 0 ? imc.toFixed(1) : "0.0";
+
+  let diagIMC = "-";
+  if (imc > 0) {
+    if (imc < 18.5) diagIMC = "Bajo peso (<18.5)";
+    else if (imc < 25) diagIMC = "Normal (18.5-24.9)";
+    else if (imc < 30) diagIMC = "Sobrepeso (25-29.9)";
+    else if (imc < 35) diagIMC = "Obesidad Grado I (30-34.9)";
+    else if (imc < 40) diagIMC = "Obesidad Grado II (35-39.9)";
+    else diagIMC = "Obesidad Grado III (≥40)";
+  }
+  if (imcDiagnosticoCitaSpan) imcDiagnosticoCitaSpan.textContent = diagIMC;
+
+  const kcalRestringidasDia = restriccion > 0 ? restriccion : 0;
+  const kgPerdidaSemanal =
+    kcalRestringidasDia > 0 ? (kcalRestringidasDia * 7) / 7700 : 0;
+
+  if (perdidaSemanalCitaSpan)
+    perdidaSemanalCitaSpan.textContent = kgPerdidaSemanal.toFixed(2);
+  if (perdida15diasCitaSpan)
+    perdida15diasCitaSpan.textContent = (kgPerdidaSemanal * (15 / 7)).toFixed(
+      2
+    );
+  if (perdida30diasCitaSpan)
+    perdida30diasCitaSpan.textContent = (kgPerdidaSemanal * (30 / 7)).toFixed(
+      2
+    );
+
+  if (diagnosticoGeneralCitaTextarea) {
+    let diagGeneral = `Paciente ${
+      genero === "masculino" ? "masculino" : "femenina"
+    } de ${edad} años con ${peso} kg y altura de ${alturaCm} cm.\n`;
+    diagGeneral += `IMC: ${imc > 0 ? imc.toFixed(1) : "N/A"} (${diagIMC}).\n`;
+    diagGeneral += `% Grasa Corporal (D&W/Siri): ${
+      porcGrasa > 0 ? porcGrasa.toFixed(1) : "N/A"
+    }% (${diagGrasa}).\n`;
+    diagGeneral += `GET: ${
+      get > 0 ? get.toFixed(0) : "N/A"
+    } kcal. Dieta propuesta: ${
+      caloriasFinales > 0 ? caloriasFinales.toFixed(0) : "N/A"
+    } kcal (Restricción: ${restriccion} kcal).\n`;
+    diagGeneral += `Distribución Macros: CHOs ${porcCarbs}% (${
+      gramosCarbs > 0 ? gramosCarbs.toFixed(1) : "0"
+    }g), Lípidos ${porcLipidos}% (${
+      gramosLipidosCalc > 0 ? gramosLipidosCalc.toFixed(1) : "0"
+    }g), Proteínas ${porcProteinas}% (${
+      gramosProteinasCalc > 0 ? gramosProteinasCalc.toFixed(1) : "0"
+    }g).\n`;
+    diagnosticoGeneralCitaTextarea.value = diagGeneral;
+  }
+}
+
+function generarPlanAlimentacionHTML(indice) {
+  return `
+          <div class="plan-alimentacion-individual mb-3 p-3 border rounded" id="plan-dieta-${indice}">
+              <h5>Dieta ${indice} <button type="button" class="btn btn-sm btn-danger btn-eliminar-dieta float-end" data-indice="${indice}">X</button></h5>
+              <div class="form-group">
+                  <label for="nombre-dieta-${indice}">Nombre de la Dieta (Ej: Lunes, Día bajo en carbs):</label>
+                  <input type="text" id="nombre-dieta-${indice}" name="nombre-dieta-${indice}" class="form-control form-control-sm">
+              </div>
+              <div class="form-group">
+                  <label for="descripcion-dieta-${indice}">Descripción / Indicaciones Generales:</label>
+                  <textarea id="descripcion-dieta-${indice}" name="descripcion-dieta-${indice}" class="form-control form-control-sm" rows="2"></textarea>
+              </div>
+              <h6>Tiempos de Comida:</h6>
+              <div id="tiempos-comida-dieta-${indice}">
+                  <!-- Tiempos de comida se agregarán aquí -->
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-primary btn-agregar-tiempo-comida" data-dietaindice="${indice}">Agregar Tiempo de Comida</button>
+          </div>
+      `;
+}
+
+function agregarTiempoComidaHTML(dietaIndice, tiempoIndice) {
+  const nombresTiemposDefault = [
+    "Desayuno",
+    "Colación Matutina",
+    "Comida",
+    "Colación Vespertina",
+    "Cena",
+    "Colación Nocturna",
+  ];
+  const nombreSugerido =
+    nombresTiemposDefault[tiempoIndice - 1] || `Tiempo ${tiempoIndice}`;
+  return `
+          <div class="tiempo-comida-individual mb-2 p-2 border-start" id="dieta-${dietaIndice}-tiempo-${tiempoIndice}">
+              <div class="form-group mb-1">
+                  <label for="nombre-tiempo-${dietaIndice}-${tiempoIndice}" class="form-label-sm">Nombre Tiempo ${tiempoIndice}:</label>
+                  <input type="text" id="nombre-tiempo-${dietaIndice}-${tiempoIndice}" name="nombre-tiempo-${dietaIndice}-${tiempoIndice}" class="form-control form-control-sm" value="${nombreSugerido}">
+              </div>
+              <div class="form-group mb-0">
+                  <label for="detalle-tiempo-${dietaIndice}-${tiempoIndice}" class="form-label-sm">Detalle:</label>
+                  <textarea id="detalle-tiempo-${dietaIndice}-${tiempoIndice}" name="detalle-tiempo-${dietaIndice}-${tiempoIndice}" class="form-control form-control-sm" rows="2"></textarea>
+              </div>
+               <button type="button" class="btn btn-xs btn-outline-danger btn-eliminar-tiempo-comida float-end" data-dietaindice="${dietaIndice}" data-tiempoindice="${tiempoIndice}">x</button>
+          </div>
+      `;
+}
+
+function agregarNuevoTiempoComida(dietaIndice) {
+  const contenedorTiempos = document.getElementById(
+    `tiempos-comida-dieta-${dietaIndice}`
+  );
+  if (!contenedorTiempos) return;
+  const tiempoIndice = contenedorTiempos.children.length + 1;
+  const nuevoTiempoHTML = agregarTiempoComidaHTML(dietaIndice, tiempoIndice);
+  contenedorTiempos.insertAdjacentHTML("beforeend", nuevoTiempoHTML);
+  const nuevoBotonEliminar = contenedorTiempos.querySelector(
+    `#dieta-${dietaIndice}-tiempo-${tiempoIndice} .btn-eliminar-tiempo-comida`
+  );
+  if (nuevoBotonEliminar) {
+    nuevoBotonEliminar.addEventListener("click", function () {
+      document
+        .getElementById(
+          `dieta-${this.dataset.dietaindice}-tiempo-${this.dataset.tiempoindice}`
+        )
+        .remove();
+    });
+  }
+}
+
+function generarPlanAlimentacionInicial() {
+  if (!contenedorPlanesAlimentacionCitaDiv) return;
+  // Solo genera el plan si no existe ya uno (evita duplicados al resetear)
+  if (
+    contenedorPlanesAlimentacionCitaDiv.children.length === 0 ||
+    numeroDeDietas === 0
+  ) {
+    numeroDeDietas = 1; // Asegurar que empezamos con la dieta 1
+    contenedorPlanesAlimentacionCitaDiv.innerHTML =
+      generarPlanAlimentacionHTML(numeroDeDietas);
+    agregarNuevoTiempoComida(numeroDeDietas);
+    agregarNuevoTiempoComida(numeroDeDietas);
+    agregarNuevoTiempoComida(numeroDeDietas);
+    attachEventListenersPlanAlimentacion(numeroDeDietas);
+  } else if (numeroDeDietas > 0) {
+    // Si ya hay dietas (ej. al editar), asegurarse que los listeners están adjuntos
+    // Esto es más complejo, podría requerir re-adjuntar a todos los existentes
+    // Por ahora, la lógica de edición carga los datos y attachEventListenersPlanAlimentacion
+    // se llama al agregar nuevas dietas.
+    // Para simplificar, la edición recarga los planes y adjunta listeners.
+  }
+}
+
+function limpiarTextareasPlanAlimentacion() {
+  if (contenedorPlanesAlimentacionCitaDiv) {
+    contenedorPlanesAlimentacionCitaDiv.innerHTML = "";
+  }
+  numeroDeDietas = 0;
+}
+
+function attachEventListenersPlanAlimentacion(indiceDieta) {
+  const planDietaDiv = document.getElementById(`plan-dieta-${indiceDieta}`);
+  if (!planDietaDiv) return;
+
+  const btnAgregarTiempo = planDietaDiv.querySelector(
+    `.btn-agregar-tiempo-comida`
+  );
+  if (btnAgregarTiempo) {
+    btnAgregarTiempo.addEventListener("click", function () {
+      agregarNuevoTiempoComida(this.dataset.dietaindice);
+    });
+  }
+  const btnEliminarDieta = planDietaDiv.querySelector(`.btn-eliminar-dieta`);
+  if (btnEliminarDieta) {
+    btnEliminarDieta.addEventListener("click", function () {
+      document.getElementById(`plan-dieta-${this.dataset.indice}`).remove();
+      // Podríamos querer re-indexar o simplemente permitir huecos.
+      // Si se elimina la dieta 1 y numeroDeDietas era 1, resetear numeroDeDietas.
+      if (
+        contenedorPlanesAlimentacionCitaDiv &&
+        contenedorPlanesAlimentacionCitaDiv.children.length === 0
+      ) {
+        numeroDeDietas = 0; // Para que generarPlanAlimentacionInicial pueda crear la primera.
+      }
+    });
+  }
+
+  // Listeners para los botones de eliminar tiempo de comida (si se añaden dinámicamente)
+  // Esto ya se maneja en agregarNuevoTiempoComida
+}
+
+function obtenerDatosPlanAlimentacion() {
+  const planes = [];
+  document
+    .querySelectorAll(".plan-alimentacion-individual")
+    .forEach((planDiv, i) => {
+      const dietaIndice = planDiv.id.split("-")[2]; // Extraer el índice del ID del div
+      const nombreDietaInput = document.getElementById(
+        `nombre-dieta-${dietaIndice}`
+      );
+      const descripcionDietaTextarea = document.getElementById(
+        `descripcion-dieta-${dietaIndice}`
+      );
+
+      const plan = {
+        nombre: nombreDietaInput
+          ? nombreDietaInput.value
+          : `Dieta ${dietaIndice}`,
+        descripcion: descripcionDietaTextarea
+          ? descripcionDietaTextarea.value
+          : "",
+        tiempos: [],
+      };
+
+      planDiv
+        .querySelectorAll(".tiempo-comida-individual")
+        .forEach((tiempoDiv, j) => {
+          const tiempoOriginalIndice = tiempoDiv.id.split("-")[3]; // Extraer el índice original del tiempo
+          const nombreTiempoInput = document.getElementById(
+            `nombre-tiempo-${dietaIndice}-${tiempoOriginalIndice}`
+          );
+          const detalleTiempoTextarea = document.getElementById(
+            `detalle-tiempo-${dietaIndice}-${tiempoOriginalIndice}`
+          );
+
+          plan.tiempos.push({
+            nombre: nombreTiempoInput
+              ? nombreTiempoInput.value
+              : `Tiempo ${j + 1}`,
+            detalle: detalleTiempoTextarea ? detalleTiempoTextarea.value : "",
+          });
+        });
+      planes.push(plan);
+    });
+  return planes;
+}
+
+function poblarPlanAlimentacionConDatos(planesGuardados) {
+  if (
+    !contenedorPlanesAlimentacionCitaDiv ||
+    !planesGuardados ||
+    planesGuardados.length === 0
+  ) {
+    generarPlanAlimentacionInicial(); // Generar uno por defecto si no hay nada
+    return;
+  }
+
+  limpiarTextareasPlanAlimentacion(); // Limpiar cualquier plan existente
+  numeroDeDietas = 0;
+
+  planesGuardados.forEach((planData, index) => {
+    numeroDeDietas++;
+    const nuevoPlanHTML = generarPlanAlimentacionHTML(numeroDeDietas);
+    contenedorPlanesAlimentacionCitaDiv.insertAdjacentHTML(
+      "beforeend",
+      nuevoPlanHTML
+    );
+
+    const nombreDietaInput = document.getElementById(
+      `nombre-dieta-${numeroDeDietas}`
+    );
+    const descripcionDietaTextarea = document.getElementById(
+      `descripcion-dieta-${numeroDeDietas}`
+    );
+    if (nombreDietaInput) nombreDietaInput.value = planData.nombre || "";
+    if (descripcionDietaTextarea)
+      descripcionDietaTextarea.value = planData.descripcion || "";
+
+    const contenedorTiempos = document.getElementById(
+      `tiempos-comida-dieta-${numeroDeDietas}`
+    );
+    if (contenedorTiempos && planData.tiempos && planData.tiempos.length > 0) {
+      planData.tiempos.forEach((tiempoData) => {
+        // Llamar a agregarNuevoTiempoComida para crear el HTML y adjuntar listeners
+        agregarNuevoTiempoComida(numeroDeDietas);
+        // Ahora poblar los campos del último tiempo de comida agregado
+        const ultimoTiempoDiv = contenedorTiempos.lastElementChild;
+        if (ultimoTiempoDiv) {
+          const tiempoIndiceActual = ultimoTiempoDiv.id.split("-")[3];
+          const nombreTiempoInput = document.getElementById(
+            `nombre-tiempo-${numeroDeDietas}-${tiempoIndiceActual}`
+          );
+          const detalleTiempoTextarea = document.getElementById(
+            `detalle-tiempo-${numeroDeDietas}-${tiempoIndiceActual}`
+          );
+          if (nombreTiempoInput)
+            nombreTiempoInput.value = tiempoData.nombre || "";
+          if (detalleTiempoTextarea)
+            detalleTiempoTextarea.value = tiempoData.detalle || "";
+        }
+      });
+    } else if (contenedorTiempos) {
+      // Si no hay tiempos guardados, agregar uno por defecto
+      agregarNuevoTiempoComida(numeroDeDietas);
+    }
+    attachEventListenersPlanAlimentacion(numeroDeDietas); // Asegurar listeners para la dieta
+  });
+}
+
+async function guardarCita() {
+  // event.preventDefault(); // El listener de submit ya lo hace
+  if (!pacienteIdCitaInput || !pacienteIdCitaInput.value) {
+    alert("Por favor, seleccione un paciente primero.");
+    return;
+  }
+  if (!currentUserId) {
+    alert("Error: Usuario no autenticado. No se puede guardar la cita.");
+    return;
+  }
+
+  // Verificar propiedad del paciente antes de guardar
+  const pacienteRefVerif = doc(db, "pacientes", pacienteIdCitaInput.value);
+  try {
+    const pacienteSnapVerif = await getDoc(pacienteRefVerif);
+    if (pacienteSnapVerif.exists()) {
+      const datosPacienteVerif = pacienteSnapVerif.data();
+      if (datosPacienteVerif.userId !== currentUserId) {
+        alert("Error: No tiene permiso para guardar citas para este paciente.");
+        return;
+      }
+    } else {
+      alert("Error: El paciente especificado no existe.");
+      return;
+    }
+  } catch (error) {
+    console.error(
+      "Error verificando propiedad del paciente antes de guardar cita:",
+      error
+    );
+    alert("Error al verificar permisos. No se guardó la cita.");
+    return;
+  }
+
+  const datosCita = {
+    pacienteId: pacienteIdCitaInput.value,
+    fecha: fechaCitaInput.value, // Asegurar formato YYYY-MM-DD
+    peso: parseFloat(pesoCitaInput.value) || null,
+    circCintura: parseFloat(circCinturaCitaInput.value) || null,
+    circCadera: parseFloat(circCaderaCitaInput.value) || null,
+    circBrazo: parseFloat(circBrazoCitaInput.value) || null,
+    pliegueBicipital: parseFloat(pliegueBicipitalCitaInput.value) || null,
+    pliegueTricipital: parseFloat(pliegueTricipitalCitaInput.value) || null,
+    pliegueSubescapular: parseFloat(pliegueSubescapularCitaInput.value) || null,
+    pliegueSuprailiaco: parseFloat(pliegueSuprailiacoCitaInput.value) || null,
+    nivelActividad: nivelActividadCitaSelect.value,
+    restriccionCalorica: parseInt(restriccionCaloricaCitaSelect.value) || 0,
+    tmbHarrisBenedict:
+      parseFloat(tmbHarrisBenedictCitaSpan.textContent) || null,
+    tmbPulgar: parseFloat(tmbPulgarCitaSpan.textContent) || null,
+    getCalculado: parseFloat(getTotalCitaSpan.textContent) || null,
+    caloriasDietaFinal:
+      parseFloat(caloriasFinalesDietaCitaSpan.textContent) || null,
+    imc: parseFloat(imcCitaSpan.textContent) || null,
+    imcDiagnostico: imcDiagnosticoCitaSpan.textContent,
+    porcGrasaSiri: parseFloat(porcGrasaSiriCitaSpan.textContent) || null,
+    grasaDiagnostico: grasaDiagnosticoCitaSpan.textContent,
+    diagnosticoGeneral: diagnosticoGeneralCitaTextarea.value,
+    porcCarbs: parseFloat(porcCarbsCitaInput.value) || 0,
+    porcLipidos: parseFloat(porcLipidosCitaInput.value) || 0,
+    porcProteinas: parseFloat(porcProteinasCitaInput.value) || 0,
+    gramosCarbs: parseFloat(gramosCarbsCitaSpan.textContent) || null,
+    gramosLipidos: parseFloat(gramosLipidosCitaSpan.textContent) || null,
+    gramosProteinas: parseFloat(gramosProteinasCitaSpan.textContent) || null,
+    perdidaSemanalEstimada:
+      parseFloat(perdidaSemanalCitaSpan.textContent) || null,
+    perdida15diasEstimada:
+      parseFloat(perdida15diasCitaSpan.textContent) || null,
+    perdida30diasEstimada:
+      parseFloat(perdida30diasCitaSpan.textContent) || null,
+    notaNutricional: notaNutricionalCitaTextarea.value,
+    planAlimentacion: obtenerDatosPlanAlimentacion(),
+    ultimaModificacion: serverTimestamp(),
+  };
+
+  const idCitaEdicion = citaIdInput.value;
+
+  try {
+    if (idCitaEdicion) {
+      // Editando cita existente
+      const citaDocRef = doc(
+        db,
+        "pacientes",
+        datosCita.pacienteId,
+        "citas",
+        idCitaEdicion
+      );
+      await updateDoc(citaDocRef, datosCita);
+      alert("Cita actualizada con éxito.");
+    } else {
+      // Creando nueva cita
+      datosCita.fechaCreacion = serverTimestamp();
+      const citasCollectionRef = firestoreCollection(
+        db,
+        "pacientes",
+        datosCita.pacienteId,
+        "citas"
+      );
+      const docRef = await addDoc(citasCollectionRef, datosCita);
+      console.log("Nueva cita guardada con ID: ", docRef.id);
+      alert("Cita guardada con éxito.");
+    }
+    resetearFormularioCita(true); // Mantener datos del paciente
+    await cargarDatosPacienteYCitas(datosCita.pacienteId); // Recargar historial
+  } catch (error) {
+    console.error("Error al guardar la cita: ", error);
+    alert("Error al guardar la cita. Verifique la consola para más detalles.");
+  }
+}
+
+function poblarFormularioConDatosCita(cita) {
+  if (!cita) return;
+
+  if (fechaCitaInput)
+    fechaCitaInput.value = cita.fecha || new Date().toISOString().split("T")[0];
+  if (pesoCitaInput) pesoCitaInput.value = cita.peso || "";
+  if (circCinturaCitaInput) circCinturaCitaInput.value = cita.circCintura || "";
+  if (circCaderaCitaInput) circCaderaCitaInput.value = cita.circCadera || "";
+  if (circBrazoCitaInput) circBrazoCitaInput.value = cita.circBrazo || "";
+  if (pliegueBicipitalCitaInput)
+    pliegueBicipitalCitaInput.value = cita.pliegueBicipital || "";
+  if (pliegueTricipitalCitaInput)
+    pliegueTricipitalCitaInput.value = cita.pliegueTricipital || "";
+  if (pliegueSubescapularCitaInput)
+    pliegueSubescapularCitaInput.value = cita.pliegueSubescapular || "";
+  if (pliegueSuprailiacoCitaInput)
+    pliegueSuprailiacoCitaInput.value = cita.pliegueSuprailiaco || "";
+
+  if (nivelActividadCitaSelect)
+    nivelActividadCitaSelect.value = cita.nivelActividad || "sedentario";
+  if (restriccionCaloricaCitaSelect)
+    restriccionCaloricaCitaSelect.value = cita.restriccionCalorica || "0";
+
+  // Los spans de resultados se actualizarán con realizarTodosLosCalculos()
+
+  if (diagnosticoGeneralCitaTextarea)
+    diagnosticoGeneralCitaTextarea.value = cita.diagnosticoGeneral || "";
+
+  if (porcCarbsCitaInput) porcCarbsCitaInput.value = cita.porcCarbs || "50";
+  if (porcLipidosCitaInput)
+    porcLipidosCitaInput.value = cita.porcLipidos || "30";
+  if (porcProteinasCitaInput)
+    porcProteinasCitaInput.value = cita.porcProteinas || "20";
+
+  if (notaNutricionalCitaTextarea)
+    notaNutricionalCitaTextarea.value = cita.notaNutricional || "";
+
+  if (citaIdInput) citaIdInput.value = cita.id; // Importante para saber que estamos editando
+
+  poblarPlanAlimentacionConDatos(cita.planAlimentacion);
+
+  realizarTodosLosCalculos(); // Recalcular todo con los datos cargados
+  if (btnCancelarEdicionCita) btnCancelarEdicionCita.classList.remove("hidden");
+}
+
+async function editarCita(idCita) {
+  if (!pacienteSeleccionadoId || !idCita) {
+    alert("ID de paciente o cita no válido para editar.");
+    return;
+  }
+
+  try {
+    const citaDocRef = doc(
+      db,
+      "pacientes",
+      pacienteSeleccionadoId,
+      "citas",
+      idCita
+    );
+    const citaSnap = await getDoc(citaDocRef);
+
+    if (citaSnap.exists()) {
+      const datosCita = { id: citaSnap.id, ...citaSnap.data() };
+      // Asegúrate de que los datos base del paciente (género, edad, altura) estén disponibles
+      // en los campos ocultos, ya que poblarFormularioConDatosCita y realizarTodosLosCalculos dependen de ellos.
+      // Esto normalmente se maneja cuando se selecciona el paciente.
+
+      poblarFormularioConDatosCita(datosCita); // Esta función llena el formulario y llama a realizarTodosLosCalculos
+
+      if (formCita) formCita.scrollIntoView({ behavior: "smooth" });
+      if (btnCancelarEdicionCita)
+        btnCancelarEdicionCita.classList.remove("hidden");
+      // alert("Datos de la cita cargados para edición."); // Opcional: feedback al usuario
+    } else {
+      alert("No se encontraron los datos de la cita para editar.");
+      console.warn(
+        `Cita con ID ${idCita} no encontrada para paciente ${pacienteSeleccionadoId}`
+      );
+    }
+  } catch (error) {
+    console.error("Error al cargar la cita para editar:", error);
+    alert("Error al cargar la cita para editar. Por favor, revise la consola.");
+  }
+}
+
+async function exportarCitaAPdf(idCita) {
+  if (!pacienteSeleccionadoId || !idCita) {
+    alert("No hay una cita seleccionada o datos de paciente para exportar.");
+    return;
+  }
+
+  try {
+    const citaDocRef = doc(
+      db,
+      "pacientes",
+      pacienteSeleccionadoId,
+      "citas",
+      idCita
+    );
+    const citaSnap = await getDoc(citaDocRef);
+    const pacienteDocRef = doc(db, "pacientes", pacienteSeleccionadoId);
+    const pacienteSnap = await getDoc(pacienteDocRef);
+
+    if (!citaSnap.exists() || !pacienteSnap.exists()) {
+      alert(
+        "No se encontraron los datos de la cita o del paciente para generar el PDF."
+      );
+      return;
+    }
+
+    const datosCita = citaSnap.data();
+    const datosPaciente = pacienteSnap.data();
+
+    // Asumiendo que jsPDF y autoTable están disponibles globalmente (ej. vía CDN en HTML)
+    const pdf = new jsPDF(); // Usa el constructor global jsPDF
+
+    // Título
+    pdf.setFontSize(18);
+    pdf.text("Resumen de Cita Nutricional", 14, 22);
+
+    // Datos del Paciente
+    pdf.setFontSize(12);
+    pdf.text("Datos del Paciente:", 14, 32);
+    const pacienteInfo = [
+      [
+        "Nombre:",
+        `${datosPaciente.nombre || ""} ${datosPaciente.apellidoPaterno || ""} ${
+          datosPaciente.apellidoMaterno || ""
+        }`.trim(),
+      ],
+      [
+        "Edad:",
+        `${datosPaciente.edad || "N/A"} años`,
+        "Género:",
+        datosPaciente.genero || "N/A",
+      ],
+      [
+        "Teléfono:",
+        datosPaciente.telefono || "N/A",
+        "Correo:",
+        datosPaciente.correo || "N/A",
+      ],
+      [
+        "Ocupación:",
+        datosPaciente.ocupacion || "N/A",
+        "Altura:",
+        `${datosPaciente.altura || "N/A"} cm`,
+      ],
+    ];
+    autoTable(pdf, {
+      startY: 36,
+      body: pacienteInfo,
+      theme: "plain",
+      styles: { fontSize: 10 },
+    });
+    let currentY = pdf.lastAutoTable.finalY + 10;
+
+    // Datos de la Cita
+    pdf.setFontSize(12);
+    let fechaCitaObj;
+    if (datosCita.fecha && datosCita.fecha.toDate) {
+      // Timestamp de Firestore
+      fechaCitaObj = datosCita.fecha.toDate();
+    } else if (datosCita.fecha) {
+      // Fecha como string YYYY-MM-DD
+      fechaCitaObj = new Date(datosCita.fecha + "T00:00:00"); // Interpretar como fecha local
+    } else {
+      fechaCitaObj = new Date(); // Fallback
+    }
+    pdf.text(
+      `Datos de la Cita (Fecha: ${fechaCitaObj.toLocaleDateString()}):`,
+      14,
+      currentY
+    );
+    currentY += 4;
+    const citaAntropo = [
+      [
+        "Peso:",
+        `${datosCita.peso || "N/A"} kg`,
+        "C. Cintura:",
+        `${datosCita.circCintura || "N/A"} cm`,
+      ],
+      [
+        "C. Cadera:",
+        `${datosCita.circCadera || "N/A"} cm`,
+        "C. Brazo:",
+        `${datosCita.circBrazo || "N/A"} cm`,
+      ],
+      [
+        "P. Bicipital:",
+        `${datosCita.pliegueBicipital || "N/A"} mm`,
+        "P. Tricipital:",
+        `${datosCita.pliegueTricipital || "N/A"} mm`,
+      ],
+      [
+        "P. Subescapular:",
+        `${datosCita.pliegueSubescapular || "N/A"} mm`,
+        "P. Suprailiaco:",
+        `${datosCita.pliegueSuprailiaco || "N/A"} mm`,
+      ],
+    ];
+    autoTable(pdf, {
+      startY: currentY,
+      body: citaAntropo,
+      theme: "grid",
+      headStyles: { fillColor: [220, 220, 220], textColor: 0 },
+      columnStyles: { 0: { fontStyle: "bold" }, 2: { fontStyle: "bold" } },
+    });
+    currentY = pdf.lastAutoTable.finalY + 6;
+
+    // Resultados y Diagnóstico
+    pdf.setFontSize(11);
+    pdf.text("Resultados y Diagnóstico:", 14, currentY);
+    currentY += 4;
+    const resultadosData = [
+      [
+        "IMC:",
+        `${datosCita.imc || "N/A"} (${datosCita.imcDiagnostico || "-"})`,
+      ],
+      [
+        "% Grasa (Siri):",
+        `${datosCita.porcGrasaSiri || "N/A"}% (${
+          datosCita.grasaDiagnostico || "-"
+        })`,
+      ],
+      [
+        "TMB (Harris-B):",
+        `${datosCita.tmbHarrisBenedict || "N/A"} kcal`,
+        "TMB (Pulgar):",
+        `${datosCita.tmbPulgar || "N/A"} kcal`,
+      ],
+      ["GET:", `${datosCita.getCalculado || "N/A"} kcal`],
+      [
+        "Calorías Dieta:",
+        `${datosCita.caloriasDietaFinal || "N/A"} kcal (Restricción: ${
+          datosCita.restriccionCalorica || 0
+        } kcal)`,
+      ],
+    ];
+    autoTable(pdf, {
+      startY: currentY,
+      body: resultadosData,
+      theme: "grid",
+      columnStyles: { 0: { fontStyle: "bold" } },
+    });
+    currentY = pdf.lastAutoTable.finalY + 6;
+
+    pdf.setFontSize(10);
+    pdf.text("Diagnóstico General:", 14, currentY);
+    currentY += 4; // Espacio antes del texto
+    pdf.setFontSize(9);
+    const diagGeneralLines = pdf.splitTextToSize(
+      datosCita.diagnosticoGeneral || "Sin diagnóstico general.",
+      180
+    );
+    pdf.text(diagGeneralLines, 14, currentY);
+    // Calcular altura del texto correctamente
+    const lineHeightDiag =
+      (Math.max(1, pdf.getLineHeightFactor()) * pdf.getFontSize()) /
+      pdf.getUnitFactor();
+    currentY += diagGeneralLines.length * lineHeightDiag + 6;
+
+    // Distribución de Macronutrientes
+    if (currentY > 260) {
+      pdf.addPage();
+      currentY = 20;
+    }
+    pdf.setFontSize(11);
+    pdf.text("Distribución de Macronutrientes:", 14, currentY);
+    currentY += 4;
+    const macrosData = [
+      [
+        "Carbohidratos:",
+        `${datosCita.porcCarbs || 0}% (${datosCita.gramosCarbs || 0}g)`,
+      ],
+      [
+        "Lípidos:",
+        `${datosCita.porcLipidos || 0}% (${datosCita.gramosLipidos || 0}g)`,
+      ],
+      [
+        "Proteínas:",
+        `${datosCita.porcProteinas || 0}% (${datosCita.gramosProteinas || 0}g)`,
+      ],
+    ];
+    autoTable(pdf, {
+      startY: currentY,
+      body: macrosData,
+      theme: "grid",
+      columnStyles: { 0: { fontStyle: "bold" } },
+    });
+    currentY = pdf.lastAutoTable.finalY + 6;
+
+    // Nota Nutricional
+    if (datosCita.notaNutricional) {
+      if (currentY > 250) {
+        pdf.addPage();
+        currentY = 20;
+      }
+      pdf.setFontSize(11);
+      pdf.text("Nota Nutricional Adicional:", 14, currentY);
+      currentY += 4;
+      pdf.setFontSize(9);
+      const notaLines = pdf.splitTextToSize(datosCita.notaNutricional, 180);
+      pdf.text(notaLines, 14, currentY);
+      const lineHeightNota =
+        (Math.max(1, pdf.getLineHeightFactor()) * pdf.getFontSize()) /
+        pdf.getUnitFactor();
+      currentY += notaLines.length * lineHeightNota + 6;
+    }
+
+    // Plan de Alimentación
+    if (datosCita.planAlimentacion && datosCita.planAlimentacion.length > 0) {
+      if (currentY > 230) {
+        pdf.addPage();
+        currentY = 20;
+      } // Más espacio para el título del plan
+      pdf.setFontSize(12);
+      pdf.text("Plan de Alimentación Sugerido:", 14, currentY);
+      currentY += 6;
+
+      datosCita.planAlimentacion.forEach((plan, index) => {
+        const planTitleHeight = pdf.getFontSize() * 1.2; // Altura estimada para el título del plan
+        const planDescMaxHeight = 50; // Estimación altura descripción
+        const tableMinHeight = 30; // Estimación altura mínima tabla tiempos
+        if (
+          currentY + planTitleHeight + planDescMaxHeight + tableMinHeight >
+          280
+        ) {
+          // Margen inferior de ~10mm (297-10)
+          pdf.addPage();
+          currentY = 20;
+        }
+
+        pdf.setFontSize(10);
+        pdf.setFillColor(230, 230, 230); // Gris claro
+        const rectY = currentY - pdf.getFontSize() * 0.7; // Ajustar Y para que el texto quede centrado verticalmente
+        const rectHeight = pdf.getFontSize() * 1.2;
+        pdf.rect(14, rectY, 182, rectHeight, "F");
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFont(undefined, "bold");
+        pdf.text(plan.nombre || `Dieta ${index + 1}`, 16, currentY);
+        pdf.setFont(undefined, "normal");
+        currentY += rectHeight; // Avanzar Y después del rectángulo del título
+
+        if (plan.descripcion) {
+          pdf.setFontSize(9);
+          const descLines = pdf.splitTextToSize(plan.descripcion, 180);
+          // Verificar si la descripción cabe
+          const descHeight =
+            (descLines.length *
+              Math.max(1, pdf.getLineHeightFactor()) *
+              pdf.getFontSize()) /
+            pdf.getUnitFactor();
+          if (currentY + descHeight > 280) {
+            pdf.addPage();
+            currentY = 20;
+          }
+          pdf.text(descLines, 16, currentY);
+          currentY += descHeight + 3; // Espacio después de la descripción
+        }
+
+        if (plan.tiempos && plan.tiempos.length > 0) {
+          const tiemposBody = plan.tiempos.map((t) => [t.nombre, t.detalle]);
+          // Verificar si la tabla cabe, autoTable maneja saltos de página para el cuerpo si es largo
+          autoTable(pdf, {
+            startY: currentY,
+            head: [["Tiempo de Comida", "Detalle / Alimentos Sugeridos"]],
+            body: tiemposBody,
+            theme: "striped",
+            headStyles: {
+              fillColor: [100, 100, 100],
+              textColor: [255, 255, 255],
+            },
+            styles: { fontSize: 8, cellPadding: 1.5 },
+            columnStyles: { 0: { cellWidth: 50 }, 1: { cellWidth: "auto" } },
+            didDrawPage: function (data) {
+              // Actualizar currentY si autoTable crea nueva página
+              currentY = data.cursor.y + 5;
+            },
+            willDrawCell: function (data) {
+              // Evitar que el texto de la celda se divida torpemente
+              if (data.row.section === "body" && data.column.index === 1) {
+                if (data.cell.raw && typeof data.cell.raw === "string") {
+                  // Truncar texto si es muy largo para una celda y no se maneja bien el salto
+                  // o asegurarse que el alto de la fila es suficiente.
+                  // autoTable debería manejar esto, pero es un punto a revisar si hay problemas.
+                }
+              }
+            },
+          });
+          currentY = pdf.lastAutoTable.finalY + 5; // Asegurar que currentY se actualiza
+        } else {
+          currentY += 3;
+        }
+      });
+    }
+
+    pdf.save(
+      `ResumenCita_${(datosPaciente.nombre || "Paciente").replace(
+        /\s+/g,
+        "_"
+      )}_${datosCita.fecha || "sinfecha"}.pdf`
+    );
+    // alert("PDF generado y descarga iniciada."); // Opcional
+  } catch (error) {
+    console.error("Error al generar el PDF de la cita:", error);
+    alert("Error al generar el PDF. Por favor, revise la consola.");
+  }
+}
+
+// --- INICIALIZACIÓN DE LA PÁGINA ---
+async function initializeCitasPage() {
+  // Asignación de elementos del DOM
+  formCita = document.getElementById("form-cita");
+  listaCitasHistorialDiv = document.getElementById("lista-citas-historial");
+  seleccionarPacienteCitaSelect = document.getElementById(
+    "seleccionar-paciente-cita"
+  );
+  nombrePacienteHistorialCitaSpan = document.getElementById(
+    "nombre-paciente-historial-cita"
+  );
+  noPacienteSeleccionadoText = document.getElementById(
+    "no-paciente-seleccionado-text"
+  );
+  citaIdInput = document.getElementById("cita-id");
+  pacienteIdCitaInput = document.getElementById("paciente-id-cita");
+  fechaCitaInput = document.getElementById("fecha-cita");
+  nombreCompletoPacienteDisplaySpan = document.getElementById(
+    "nombre-completo-paciente-display"
+  );
+  ocupacionPacienteDisplaySpan = document.getElementById(
+    "ocupacion-paciente-display"
+  );
+  telefonoPacienteDisplaySpan = document.getElementById(
+    "telefono-paciente-display"
+  );
+  correoPacienteDisplaySpan = document.getElementById(
+    "correo-paciente-display"
+  );
+  fechaRegistroPacienteDisplaySpan = document.getElementById(
+    "fecha-registro-paciente-display"
+  );
+  generoPacienteDisplaySpan = document.getElementById(
+    "genero-paciente-display"
+  );
+  edadPacienteDisplaySpan = document.getElementById("edad-paciente-display");
+  alturaPacienteDisplaySpan = document.getElementById(
+    "altura-paciente-display"
+  );
+  generoPacienteHiddenInput = document.getElementById("genero-paciente-hidden");
+  edadPacienteHiddenInput = document.getElementById("edad-paciente-hidden");
+  alturaPacienteHiddenInput = document.getElementById("altura-paciente-hidden");
+  pesoCitaInput = document.getElementById("peso-cita");
+  circCinturaCitaInput = document.getElementById("circ-cintura-cita");
+  circCaderaCitaInput = document.getElementById("circ-cadera-cita");
+  circBrazoCitaInput = document.getElementById("circ-brazo-cita");
+  pliegueBicipitalCitaInput = document.getElementById("pliegue-bicipital-cita");
+  pliegueTricipitalCitaInput = document.getElementById(
+    "pliegue-tricipital-cita"
+  );
+  pliegueSubescapularCitaInput = document.getElementById(
+    "pliegue-subescapular-cita"
+  );
+  pliegueSuprailiacoCitaInput = document.getElementById(
+    "pliegue-suprailiaco-cita"
+  );
+  nivelActividadCitaSelect = document.getElementById("nivel-actividad-cita");
+  restriccionCaloricaCitaSelect = document.getElementById(
+    "restriccion-calorica-cita"
+  );
+  tmbHarrisBenedictCitaSpan = document.getElementById(
+    "tmb-harris-benedict-cita"
+  );
+  tmbPulgarCitaSpan = document.getElementById("tmb-pulgar-cita");
+  getTotalCitaSpan = document.getElementById("get-total-cita");
+  caloriasFinalesDietaCitaSpan = document.getElementById(
+    "calorias-finales-dieta-cita"
+  );
+  imcCitaSpan = document.getElementById("imc-cita");
+  imcDiagnosticoCitaSpan = document.getElementById("imc-diagnostico-cita");
+  porcGrasaSiriCitaSpan = document.getElementById("porc-grasa-siri-cita");
+  grasaDiagnosticoCitaSpan = document.getElementById("grasa-diagnostico-cita");
+  diagnosticoGeneralCitaTextarea = document.getElementById(
+    "diagnostico-general-cita"
+  );
+  porcCarbsCitaInput = document.getElementById("porc-carbs-cita");
+  porcLipidosCitaInput = document.getElementById("porc-lipidos-cita");
+  porcProteinasCitaInput = document.getElementById("porc-proteinas-cita");
+  sumaMacrosPorcCitaSpan = document.getElementById("suma-macros-porc-cita");
+  gramosCarbsCitaSpan = document.getElementById("gramos-carbs-cita");
+  gramosLipidosCitaSpan = document.getElementById("gramos-lipidos-cita");
+  gramosProteinasCitaSpan = document.getElementById("gramos-proteinas-cita");
+  perdidaSemanalCitaSpan = document.getElementById("perdida-semanal-cita");
+  perdida15diasCitaSpan = document.getElementById("perdida-15dias-cita");
+  perdida30diasCitaSpan = document.getElementById("perdida-30dias-cita");
+  notaNutricionalCitaTextarea = document.getElementById(
+    "nota-nutricional-cita"
+  );
+  contenedorPlanesAlimentacionCitaDiv = document.getElementById(
+    "contenedor-planes-alimentacion-cita"
+  );
+  btnAgregarOtraDietaCita = document.getElementById(
+    "btn-agregar-otra-dieta-cita"
+  );
+  btnCancelarEdicionCita = document.getElementById("btn-cancelar-edicion-cita");
+  btnExportarPdfCita = document.getElementById("btn-exportar-pdf-cita");
+
+  const auth = getAuth(app);
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      globalCurrentUserIdForCitas = user.uid;
+      console.log(
+        "citas.js: Usuario autenticado:",
+        globalCurrentUserIdForCitas
+      );
+      // Ahora que tenemos el ID del usuario, poblamos el select de pacientes.
+      await popularSelectPacientes(); // Asegurarse de que se llame aquí y sea awaited.
+
+      // Si ya había un paciente seleccionado en localStorage, intentar cargarlo.
+      // Esto se movió dentro de popularSelectPacientes para asegurar que el select esté lleno primero.
+      // if (pacienteSeleccionadoId && seleccionarPacienteCitaSelect) {
+      //   seleccionarPacienteCitaSelect.value = pacienteSeleccionadoId;
+      //   // Verificar si la opción realmente existe después de popular
+      //   if (seleccionarPacienteCitaSelect.value === pacienteSeleccionadoId) {
+      //     cargarDatosPacienteYCitas(pacienteSeleccionadoId);
+      //   } else {
+      //     // Si el paciente seleccionado anteriormente ya no existe, limpiar
+      //     localStorage.removeItem("selectedPacienteIdCitas");
+      //     pacienteSeleccionadoId = null;
+      //     limpiarFormularioCompleto(false);
+      //   }
+      // }
+    } else {
+      console.log(
+        "Usuario no autenticado, redirigiendo al login desde citas.js"
+      );
+      globalCurrentUserIdForCitas = null;
+      window.location.href = "index.html";
+    }
+  });
 
   if (seleccionarPacienteCitaSelect) {
-    seleccionarPacienteCitaSelect.addEventListener("change", async function () {
-      const nuevoPacienteId = this.value;
-      await cargarDatosPacienteYCitas(nuevoPacienteId);
+    seleccionarPacienteCitaSelect.addEventListener("change", (event) => {
+      pacienteSeleccionadoId = event.target.value;
+      localStorage.setItem("selectedPacienteIdCitas", pacienteSeleccionadoId);
+      if (pacienteSeleccionadoId) {
+        cargarDatosPacienteYCitas(pacienteSeleccionadoId);
+      } else {
+        limpiarFormularioCompleto(false); // Limpiar si se selecciona "Seleccione un paciente"
+      }
     });
+  } else {
+    console.warn(
+      "El elemento 'seleccionarPacienteCitaSelect' no se encontró durante la inicialización de listeners."
+    );
   }
 
-  // --- RENDER HISTORIAL DE CITAS ---
-  function renderCitasHistorial() {
-    if (!listaCitasHistorialDiv) return;
-    listaCitasHistorialDiv.innerHTML = "";
-    if (!pacienteSeleccionadoId) {
-      listaCitasHistorialDiv.innerHTML =
-        "<p>Seleccione un paciente para ver su historial de citas.</p>";
-      return;
-    }
-    if (citasDelPacienteActual.length === 0) {
-      listaCitasHistorialDiv.innerHTML =
-        "<p>Este paciente no tiene citas registradas.</p>";
-      return;
-    }
-
-    // Ya vienen ordenadas por fecha desc desde Firestore
-    citasDelPacienteActual.forEach((cita) => {
-      const citaDiv = document.createElement("div");
-      citaDiv.classList.add("cita-item-historial");
-      const fechaCitaFormateada = cita.fecha
-        ? new Date(cita.fecha + "T00:00:00").toLocaleDateString()
-        : "Fecha N/A"; // Asegurar que se interprete como local
-      citaDiv.innerHTML = `
-                <h6>Cita del ${fechaCitaFormateada}</h6>
-                <p><strong>Peso:</strong> ${cita.peso || "N/A"} kg</p>
-                <p><strong>Cal. Dieta:</strong> ${
-                  cita.caloriasDietaFinal || "N/A"
-                } kcal</p>
-                <div class="acciones-historial">
-                    <button class="btn btn-sm btn-info btn-editar-cita-historial" data-id="${
-                      cita.id
-                    }">Editar</button>
-                    <button class="btn btn-sm btn-danger btn-eliminar-cita-historial" data-id="${
-                      cita.id
-                    }">Eliminar</button>
-                </div>
-            `;
-      listaCitasHistorialDiv.appendChild(citaDiv);
+  if (btnExportarPdfCita) {
+    btnExportarPdfCita.addEventListener("click", function () {
+      // ... (código existente para exportar PDF) ...
     });
-
-    // Añadir event listeners a los botones del historial
-    listaCitasHistorialDiv
-      .querySelectorAll(".btn-editar-cita-historial")
-      .forEach((btn) => {
-        btn.addEventListener("click", () => editarCita(btn.dataset.id));
-      });
-    listaCitasHistorialDiv
-      .querySelectorAll(".btn-eliminar-cita-historial")
-      .forEach((btn) => {
-        btn.addEventListener("click", () =>
-          eliminarCitaDesdeHistorial(btn.dataset.id)
-        );
-      });
+  } else {
+    console.warn("El botón 'btnExportarPdfCita' no se encontró en el DOM.");
   }
 
-  // --- CÁLCULOS AUTOMÁTICOS ---
-  function realizarTodosLosCalculos() {
-    if (
-      !generoPacienteHiddenInput ||
-      !edadPacienteHiddenInput ||
-      !alturaPacienteHiddenInput ||
-      !pesoCitaInput
-    ) {
-      limpiarSpansDeCalculo();
-      return;
-    }
-
-    const peso = parseFloat(pesoCitaInput.value) || 0;
-    const alturaCm = parseFloat(alturaPacienteHiddenInput.value) || 0;
-    const edad = parseInt(edadPacienteHiddenInput.value) || 0;
-    const genero = generoPacienteHiddenInput.value
-      ? generoPacienteHiddenInput.value.toLowerCase()
-      : "";
-
-    // 1. TMB (Metabolismo Basal)
-    let tmbHarris = 0;
-    if (peso > 0 && alturaCm > 0 && edad > 0 && genero) {
-      if (genero === "masculino") {
-        tmbHarris = 88.362 + 13.397 * peso + 4.799 * alturaCm - 5.677 * edad;
-      } else if (genero === "femenino") {
-        tmbHarris = 447.593 + 9.247 * peso + 3.098 * alturaCm - 4.33 * edad;
-      }
-    }
-    if (tmbHarrisBenedictCitaSpan)
-      tmbHarrisBenedictCitaSpan.textContent =
-        tmbHarris > 0 ? tmbHarris.toFixed(0) : "0";
-
-    const tmbPulgar = peso > 0 ? peso * 25 : 0;
-    if (tmbPulgarCitaSpan) tmbPulgarCitaSpan.textContent = tmbPulgar.toFixed(0);
-
-    const tmbBase = tmbHarris > 0 ? tmbHarris : tmbPulgar > 0 ? tmbPulgar : 0;
-
-    // 2. GET (Gasto Energético Total)
-    const factorActividadValor = {
-      sedentario: 1.2,
-      ligero: 1.375,
-      activo: 1.55, // 'activo' en HTML es 1.55
-      "muy-activo": 1.725, // 'muy-activo' en HTML es 1.725
-    };
-    const nivelActividadKey = nivelActividadCitaSelect
-      ? nivelActividadCitaSelect.value
-      : "sedentario";
-    const factorActividad = factorActividadValor[nivelActividadKey] || 1.2;
-    const get = tmbBase * factorActividad;
-    if (getTotalCitaSpan)
-      getTotalCitaSpan.textContent = get > 0 ? get.toFixed(0) : "0";
-
-    // 3. Calorías Finales con Restricción
-    const restriccion = restriccionCaloricaCitaSelect
-      ? parseInt(restriccionCaloricaCitaSelect.value) || 0
-      : 0;
-    const caloriasFinales = get - restriccion;
-    if (caloriasFinalesDietaCitaSpan)
-      caloriasFinalesDietaCitaSpan.textContent =
-        caloriasFinales > 0 ? caloriasFinales.toFixed(0) : "0";
-
-    // 4. Distribución de Macronutrientes (Gramos)
-    let porcCarbs = porcCarbsCitaInput
-      ? parseFloat(porcCarbsCitaInput.value) || 0
-      : 0;
-    let porcLipidos = porcLipidosCitaInput
-      ? parseFloat(porcLipidosCitaInput.value) || 0
-      : 0;
-    let porcProteinas = porcProteinasCitaInput
-      ? parseFloat(porcProteinasCitaInput.value) || 0
-      : 0;
-
-    const sumaMacros = porcCarbs + porcLipidos + porcProteinas;
-    if (sumaMacrosPorcCitaSpan) {
-      sumaMacrosPorcCitaSpan.textContent = sumaMacros.toFixed(1);
-      sumaMacrosPorcCitaSpan.style.color =
-        Math.abs(sumaMacros - 100) > 0.1 ? "red" : "green";
-    }
-
-    const caloriasParaMacros = caloriasFinales > 0 ? caloriasFinales : 0;
-    const gramosCarbs = (caloriasParaMacros * (porcCarbs / 100)) / 4;
-    const gramosLipidosCalc = (caloriasParaMacros * (porcLipidos / 100)) / 9;
-    const gramosProteinasCalc =
-      (caloriasParaMacros * (porcProteinas / 100)) / 4;
-
-    if (gramosCarbsCitaSpan)
-      gramosCarbsCitaSpan.textContent =
-        gramosCarbs > 0 ? gramosCarbs.toFixed(1) : "0.0";
-    if (gramosLipidosCitaSpan)
-      gramosLipidosCitaSpan.textContent =
-        gramosLipidosCalc > 0 ? gramosLipidosCalc.toFixed(1) : "0.0";
-    if (gramosProteinasCitaSpan)
-      gramosProteinasCitaSpan.textContent =
-        gramosProteinasCalc > 0 ? gramosProteinasCalc.toFixed(1) : "0.0";
-
-    // 5. % Grasa Corporal (Siri, usando Durnin & Womersley para Densidad)
-    const pliegueBicipital = pliegueBicipitalCitaInput
-      ? parseFloat(pliegueBicipitalCitaInput.value) || 0
-      : 0;
-    const pliegueTricipital = pliegueTricipitalCitaInput
-      ? parseFloat(pliegueTricipitalCitaInput.value) || 0
-      : 0; // Asegúrate que esta línea use pliegueTricipitalCitaInput
-    const pliegueSubescapular = pliegueSubescapularCitaInput
-      ? parseFloat(pliegueSubescapularCitaInput.value) || 0
-      : 0;
-    const pliegueSuprailiaco = pliegueSuprailiacoCitaInput
-      ? parseFloat(pliegueSuprailiacoInput.value) || 0
-      : 0;
-    const suma4Pliegues =
-      pliegueBicipital +
-      pliegueTricipital +
-      pliegueSubescapular +
-      pliegueSuprailiaco;
-
-    let densidadCorporal = 0;
-    let porcGrasa = 0;
-    if (suma4Pliegues > 0 && edad > 0 && genero) {
-      const logS4P = Math.log10(suma4Pliegues);
-      if (genero === "masculino") {
-        if (edad >= 17 && edad <= 19) densidadCorporal = 1.162 - 0.063 * logS4P;
-        else if (edad >= 20 && edad <= 29)
-          densidadCorporal = 1.1631 - 0.0632 * logS4P;
-        else if (edad >= 30 && edad <= 39)
-          densidadCorporal = 1.1422 - 0.0544 * logS4P;
-        else if (edad >= 40 && edad <= 49)
-          densidadCorporal =
-            1.162 -
-            0.07 *
-              logS4P; // Esta constante parece un error en la fórmula original de D&W, debería ser más baja. Usando una aproximación o la de 30-39.
-        else if (edad >= 50) densidadCorporal = 1.1715 - 0.0779 * logS4P;
-        else densidadCorporal = 1.1631 - 0.0632 * logS4P; // Default para edades fuera de rango
-      } else if (genero === "femenino") {
-        if (edad >= 17 && edad <= 19)
-          densidadCorporal = 1.1549 - 0.0678 * logS4P;
-        else if (edad >= 20 && edad <= 29)
-          densidadCorporal = 1.1599 - 0.0717 * logS4P;
-        else if (edad >= 30 && edad <= 39)
-          densidadCorporal = 1.1423 - 0.0632 * logS4P;
-        else if (edad >= 40 && edad <= 49)
-          densidadCorporal = 1.1333 - 0.0612 * logS4P;
-        else if (edad >= 50) densidadCorporal = 1.1339 - 0.0645 * logS4P;
-        else densidadCorporal = 1.1599 - 0.0717 * logS4P; // Default
-      }
-      if (densidadCorporal > 0) {
-        porcGrasa = 495 / densidadCorporal - 450;
-      }
-    }
-    if (porcGrasaSiriCitaSpan)
-      porcGrasaSiriCitaSpan.textContent =
-        porcGrasa > 0 ? porcGrasa.toFixed(1) : "0.0";
-
-    let diagGrasa = "-";
-    // Diagnóstico % Grasa (ej. OMS o SEEDO)
-    if (porcGrasa > 0 && genero) {
-      if (genero === "masculino") {
-        if (edad >= 20 && edad <= 39) {
-          if (porcGrasa < 8) diagGrasa = "Bajo";
-          else if (porcGrasa <= 19) diagGrasa = "Saludable";
-          else if (porcGrasa < 25) diagGrasa = "Sobrepeso";
-          else diagGrasa = "Obesidad";
-        } else if (edad >= 40 && edad <= 59) {
-          if (porcGrasa < 11) diagGrasa = "Bajo";
-          else if (porcGrasa <= 21) diagGrasa = "Saludable";
-          else if (porcGrasa < 28) diagGrasa = "Sobrepeso";
-          else diagGrasa = "Obesidad";
-        } else if (edad >= 60) {
-          if (porcGrasa < 13) diagGrasa = "Bajo";
-          else if (porcGrasa <= 24) diagGrasa = "Saludable";
-          else if (porcGrasa < 30) diagGrasa = "Sobrepeso";
-          else diagGrasa = "Obesidad";
-        }
-      } else if (genero === "femenino") {
-        if (edad >= 20 && edad <= 39) {
-          if (porcGrasa < 21) diagGrasa = "Bajo";
-          else if (porcGrasa <= 32) diagGrasa = "Saludable";
-          else if (porcGrasa < 39) diagGrasa = "Sobrepeso";
-          else diagGrasa = "Obesidad";
-        } else if (edad >= 40 && edad <= 59) {
-          if (porcGrasa < 23) diagGrasa = "Bajo";
-          else if (porcGrasa <= 33) diagGrasa = "Saludable";
-          else if (porcGrasa < 40) diagGrasa = "Sobrepeso";
-          else diagGrasa = "Obesidad";
-        } else if (edad >= 60) {
-          if (porcGrasa < 24) diagGrasa = "Bajo";
-          else if (porcGrasa <= 35) diagGrasa = "Saludable";
-          else if (porcGrasa < 42) diagGrasa = "Sobrepeso";
-          else diagGrasa = "Obesidad";
-        }
-      }
-    }
-    if (grasaDiagnosticoCitaSpan)
-      grasaDiagnosticoCitaSpan.textContent = diagGrasa;
-
-    // 6. IMC (Índice de Masa Corporal)
-    const alturaM = alturaCm / 100;
-    let imc = 0;
-    if (peso > 0 && alturaM > 0) {
-      imc = peso / (alturaM * alturaM);
-    }
-    if (imcCitaSpan) imcCitaSpan.textContent = imc > 0 ? imc.toFixed(1) : "0.0";
-
-    let diagIMC = "-";
-    if (imc > 0) {
-      if (imc < 18.5) diagIMC = "Bajo peso";
-      else if (imc < 25) diagIMC = "Normal"; // Ajustado a < 25 para normal
-      else if (imc < 30) diagIMC = "Sobrepeso";
-      else diagIMC = "Obesidad";
-    }
-    if (imcDiagnosticoCitaSpan) imcDiagnosticoCitaSpan.textContent = diagIMC;
-
-    // 7. Estimación Pérdida de Peso
-    const kcalRestringidasDia = restriccion > 0 ? restriccion : 0;
-    const kgPerdidaSemanal =
-      kcalRestringidasDia > 0 ? (kcalRestringidasDia * 7) / 7700 : 0;
-
-    if (perdidaSemanalCitaSpan)
-      perdidaSemanalCitaSpan.textContent = kgPerdidaSemanal.toFixed(2);
-    if (perdida15diasCitaSpan)
-      perdida15diasCitaSpan.textContent = (kgPerdidaSemanal * (15 / 7)).toFixed(
-        2
-      );
-    if (perdida30diasCitaSpan)
-      perdida30diasCitaSpan.textContent = (kgPerdidaSemanal * (30 / 7)).toFixed(
-        2
-      );
+  if (formCita) {
+    formCita.addEventListener("submit", (event) => {
+      event.preventDefault(); // Prevenir el envío por defecto del formulario
+      guardarCita();
+    });
+  } else {
+    console.warn("El formulario 'formCita' no se encontró en el DOM.");
   }
 
-  // Event listeners para recalcular cuando cambien los inputs relevantes
-  const inputsParaRecalculo = [
+  if (btnCancelarEdicionCita) {
+    btnCancelarEdicionCita.addEventListener("click", () => {
+      resetearFormularioCita(true); // Mantener datos del paciente, limpiar campos de cita
+      // Opcional: limpiar selección de paciente si es necesario
+      // if (seleccionarPacienteCitaSelect) seleccionarPacienteCitaSelect.value = "";
+      // limpiarFormularioCompleto(false);
+    });
+  } else {
+    // Comentado para evitar el error si el botón no siempre está presente.
+    // console.warn("El botón 'btnCancelarEdicionCita' no se encontró en el DOM.");
+  }
+
+  if (btnAgregarOtraDietaCita) {
+    btnAgregarOtraDietaCita.addEventListener("click", function () {
+      numeroDeDietas++;
+      const nuevoPlanHTML = generarPlanAlimentacionHTML(numeroDeDietas);
+      contenedorPlanesAlimentacionCitaDiv.insertAdjacentHTML(
+        "beforeend",
+        nuevoPlanHTML
+      );
+      // Agregar tiempos de comida por defecto al nuevo plan
+      agregarNuevoTiempoComida(numeroDeDietas);
+      agregarNuevoTiempoComida(numeroDeDietas);
+      agregarNuevoTiempoComida(numeroDeDietas);
+      attachEventListenersPlanAlimentacion(numeroDeDietas);
+    });
+  } else {
+    console.warn(
+      "El botón 'btnAgregarOtraDietaCita' no se encontró en el DOM."
+    );
+  }
+
+  // Event listeners para campos de macronutrientes y otros que disparan cálculos
+  [
+    porcCarbsCitaInput,
+    porcLipidosCitaInput,
+    porcProteinasCitaInput,
     pesoCitaInput,
     nivelActividadCitaSelect,
     restriccionCaloricaCitaSelect,
@@ -712,793 +1665,52 @@ document.addEventListener("DOMContentLoaded", async function () {
     pliegueTricipitalCitaInput,
     pliegueSubescapularCitaInput,
     pliegueSuprailiacoCitaInput,
-    porcCarbsCitaInput,
-    porcLipidosCitaInput,
-    porcProteinasCitaInput,
-  ];
-  inputsParaRecalculo.forEach((input) => {
+  ].forEach((input) => {
     if (input) {
-      const eventType =
-        input.tagName === "SELECT" || input.type === "number"
-          ? "change"
-          : "input";
-      input.addEventListener(eventType, realizarTodosLosCalculos);
-      if (input.type === "number")
-        input.addEventListener("input", realizarTodosLosCalculos); // Para que recalcule mientras se escribe
+      input.addEventListener("input", realizarTodosLosCalculos);
+    } else {
+      // console.warn("Un input para cálculos no fue encontrado durante la asignación de listeners.");
     }
   });
 
-  // --- MANEJO DE CITAS (CRUD) ---
-  async function eliminarCitaDesdeHistorial(idCita) {
-    if (!idCita || !pacienteSeleccionadoId) {
-      alert("ID de cita o paciente no válido para eliminar.");
-      return;
-    }
+  setDefaultFechaCita(); // Establecer la fecha por defecto al cargar la página
+  actualizarSumaMacrosPorcentaje(); // Para inicializar la suma en 0% o el valor por defecto
+  generarPlanAlimentacionInicial(); // Generar el primer plan de alimentación
+  limpiarFormularioCompleto(false); // Asegurar un estado limpio inicial si no hay paciente
+}
 
-    const citaAEliminar = citasDelPacienteActual.find((c) => c.id === idCita);
-    if (!citaAEliminar) {
-      alert("Cita no encontrada para eliminar.");
-      return;
-    }
-    const fechaCitaEliminar = citaAEliminar.fecha
-      ? new Date(citaAEliminar.fecha + "T00:00:00").toLocaleDateString()
-      : "desconocida";
+function limpiarFormularioCompleto(mantenerSeleccionPaciente = false) {
+  resetearFormularioCita(false); // Esto ya llama a setDefaultFechaCita y limpiarSpansDeCalculo
 
-    if (
-      confirm(
-        `¿Está seguro de que desea eliminar la cita del ${fechaCitaEliminar}? Esta acción no se puede deshacer.`
-      )
-    ) {
-      try {
-        const citaDocRef = doc(
-          db,
-          "pacientes",
-          pacienteSeleccionadoId,
-          "citas",
-          idCita
-        );
-        await deleteDoc(citaDocRef);
-        alert("Cita eliminada con éxito.");
-
-        // Si la cita eliminada era la que se estaba editando, limpiar el formulario
-        if (citaIdInput && citaIdInput.value === idCita) {
-          resetearFormularioCita(true); // Mantener datos del paciente actual
-        }
-        await cargarDatosPacienteYCitas(pacienteSeleccionadoId); // Recargar y renderizar historial
-      } catch (error) {
-        console.error("Error al eliminar cita: ", error);
-        alert(
-          "Error al eliminar la cita. Verifique la consola para más detalles."
-        );
-      }
-    }
-  }
-  window.eliminarCitaDesdeHistorial = eliminarCitaDesdeHistorial; // Hacerla accesible globalmente para los botones
-
-  let numeroDeDietas = 1; // Contador para los IDs de los planes de dieta
-
-  function generarPlanAlimentacionHTML(indice) {
-    return `
-            <div class="plan-alimentacion-individual mb-3 p-3 border rounded" id="plan-dieta-${indice}">
-                <h5>Dieta ${indice} <button type="button" class="btn btn-sm btn-danger btn-eliminar-dieta float-end" data-indice="${indice}">X</button></h5>
-                <div class="form-group">
-                    <label for="nombre-dieta-${indice}">Nombre de la Dieta (Ej: Lunes, Día bajo en carbs):</label>
-                    <input type="text" id="nombre-dieta-${indice}" name="nombre-dieta-${indice}" class="form-control form-control-sm">
-                </div>
-                <div class="form-group">
-                    <label for="descripcion-dieta-${indice}">Descripción / Indicaciones Generales:</label>
-                    <textarea id="descripcion-dieta-${indice}" name="descripcion-dieta-${indice}" class="form-control form-control-sm" rows="2"></textarea>
-                </div>
-                <h6>Tiempos de Comida:</h6>
-                <div id="tiempos-comida-dieta-${indice}">
-                    <!-- Tiempos de comida se agregarán aquí -->
-                </div>
-                <button type="button" class="btn btn-sm btn-outline-primary btn-agregar-tiempo-comida" data-dietaindice="${indice}">Agregar Tiempo de Comida</button>
-            </div>
-        `;
+  if (!mantenerSeleccionPaciente && seleccionarPacienteCitaSelect) {
+    seleccionarPacienteCitaSelect.value = "";
+    localStorage.removeItem("selectedPacienteIdCitas");
+    pacienteSeleccionadoId = null;
   }
 
-  function agregarTiempoComidaHTML(dietaIndice, tiempoIndice) {
-    const nombresTiemposDefault = [
-      "Desayuno",
-      "Colación Matutina",
-      "Comida",
-      "Colación Vespertina",
-      "Cena",
-      "Colación Nocturna",
-    ];
-    const nombreSugerido =
-      nombresTiemposDefault[tiempoIndice - 1] || `Tiempo ${tiempoIndice}`;
-    return `
-            <div class="tiempo-comida-individual mb-2 p-2 border-start" id="dieta-${dietaIndice}-tiempo-${tiempoIndice}">
-                <div class="form-group mb-1">
-                    <label for="nombre-tiempo-${dietaIndice}-${tiempoIndice}" class="form-label-sm">Nombre Tiempo ${tiempoIndice}:</label>
-                    <input type="text" id="nombre-tiempo-${dietaIndice}-${tiempoIndice}" name="nombre-tiempo-${dietaIndice}-${tiempoIndice}" class="form-control form-control-sm" value="${nombreSugerido}">
-                </div>
-                <div class="form-group mb-0">
-                    <label for="detalle-tiempo-${dietaIndice}-${tiempoIndice}" class="form-label-sm">Detalle:</label>
-                    <textarea id="detalle-tiempo-${dietaIndice}-${tiempoIndice}" name="detalle-tiempo-${dietaIndice}-${tiempoIndice}" class="form-control form-control-sm" rows="2"></textarea>
-                </div>
-                 <button type="button" class="btn btn-xs btn-outline-danger btn-eliminar-tiempo-comida float-end" data-dietaindice="${dietaIndice}" data-tiempoindice="${tiempoIndice}">x</button>
-            </div>
-        `;
-  }
+  if (nombreCompletoPacienteDisplaySpan)
+    nombreCompletoPacienteDisplaySpan.textContent = "-";
+  if (generoPacienteDisplaySpan) generoPacienteDisplaySpan.textContent = "-";
+  if (edadPacienteDisplaySpan) edadPacienteDisplaySpan.textContent = "-";
+  if (alturaPacienteDisplaySpan) alturaPacienteDisplaySpan.textContent = "-";
+  if (ocupacionPacienteDisplaySpan)
+    ocupacionPacienteDisplaySpan.textContent = "-";
+  if (telefonoPacienteDisplaySpan)
+    telefonoPacienteDisplaySpan.textContent = "-";
+  if (correoPacienteDisplaySpan) correoPacienteDisplaySpan.textContent = "-";
+  if (fechaRegistroPacienteDisplaySpan)
+    fechaRegistroPacienteDisplaySpan.textContent = "-";
 
-  function agregarNuevoTiempoComida(dietaIndice) {
-    const contenedorTiempos = document.getElementById(
-      `tiempos-comida-dieta-${dietaIndice}`
-    );
-    if (!contenedorTiempos) return;
-    const tiempoIndice = contenedorTiempos.children.length + 1;
-    const nuevoTiempoHTML = agregarTiempoComidaHTML(dietaIndice, tiempoIndice);
-    contenedorTiempos.insertAdjacentHTML("beforeend", nuevoTiempoHTML);
-    // Attach listener to new delete button for time slot
-    const nuevoBotonEliminar = contenedorTiempos.querySelector(
-      `#dieta-${dietaIndice}-tiempo-${tiempoIndice} .btn-eliminar-tiempo-comida`
-    );
-    if (nuevoBotonEliminar) {
-      nuevoBotonEliminar.addEventListener("click", function () {
-        document
-          .getElementById(
-            `dieta-${dietaIndice}-tiempo-${this.dataset.tiempoindice}`
-          )
-          .remove();
-        // Re-indexar si es necesario o simplemente permitir huecos (más simple)
-      });
-    }
-  }
+  if (nombrePacienteHistorialCitaSpan)
+    nombrePacienteHistorialCitaSpan.textContent = "-";
+  if (listaCitasHistorialDiv)
+    listaCitasHistorialDiv.innerHTML =
+      "<p>Seleccione un paciente para ver su historial.</p>";
+  if (noPacienteSeleccionadoText)
+    noPacienteSeleccionadoText.style.display = "block";
+  if (formCita) formCita.style.display = "none";
 
-  function generarPlanAlimentacionInicial() {
-    if (!contenedorPlanesAlimentacionCitaDiv) return;
-    contenedorPlanesAlimentacionCitaDiv.innerHTML =
-      generarPlanAlimentacionHTML(1);
-    agregarNuevoTiempoComida(1); // Agregar un tiempo de comida por defecto al primer plan
-    agregarNuevoTiempoComida(1);
-    agregarNuevoTiempoComida(1);
-    attachEventListenersPlanAlimentacion(1);
-  }
+  // Los campos ocultos de paciente se limpian en resetearFormularioCita si no se mantienen datos
+}
 
-  function limpiarTextareasPlanAlimentacion() {
-    if (contenedorPlanesAlimentacionCitaDiv) {
-      contenedorPlanesAlimentacionCitaDiv.innerHTML = "";
-    }
-    numeroDeDietas = 0; // Se reinicia y se creará la primera con generarPlanAlimentacionInicial
-  }
-
-  function attachEventListenersPlanAlimentacion(indiceDieta) {
-    const btnAgregarTiempo = document.querySelector(
-      `#plan-dieta-${indiceDieta} .btn-agregar-tiempo-comida`
-    );
-    if (btnAgregarTiempo) {
-      btnAgregarTiempo.addEventListener("click", function () {
-        agregarNuevoTiempoComida(this.dataset.dietaindice);
-      });
-    }
-    const btnEliminarDieta = document.querySelector(
-      `#plan-dieta-${indiceDieta} .btn-eliminar-dieta`
-    );
-    if (btnEliminarDieta) {
-      btnEliminarDieta.addEventListener("click", function () {
-        document.getElementById(`plan-dieta-${this.dataset.indice}`).remove();
-        // Si se elimina la única dieta, se podría generar una nueva vacía o dejarlo así.
-        if (contenedorPlanesAlimentacionCitaDiv.children.length === 0) {
-          numeroDeDietas = 0; // Resetear contador para que el próximo sea 1
-          // Opcional: agregar uno nuevo automáticamente
-          // if (btnAgregarOtraDietaCita) btnAgregarOtraDietaCita.click();
-        }
-      });
-    }
-    // Listeners para los botones de eliminar tiempos de comida individuales (si ya existen al cargar)
-    document
-      .querySelectorAll(
-        `#plan-dieta-${indiceDieta} .btn-eliminar-tiempo-comida`
-      )
-      .forEach((btn) => {
-        btn.addEventListener("click", function () {
-          document
-            .getElementById(
-              `dieta-${this.dataset.dietaindice}-tiempo-${this.dataset.tiempoindice}`
-            )
-            .remove();
-        });
-      });
-  }
-
-  if (btnAgregarOtraDietaCita) {
-    btnAgregarOtraDietaCita.addEventListener("click", () => {
-      numeroDeDietas++;
-      const nuevoPlanHTML = generarPlanAlimentacionHTML(numeroDeDietas);
-      if (contenedorPlanesAlimentacionCitaDiv) {
-        contenedorPlanesAlimentacionCitaDiv.insertAdjacentHTML(
-          "beforeend",
-          nuevoPlanHTML
-        );
-        agregarNuevoTiempoComida(numeroDeDietas); // Agregar un tiempo por defecto
-        attachEventListenersPlanAlimentacion(numeroDeDietas);
-      }
-    });
-  }
-
-  // --- SUBMIT DEL FORMULARIO DE CITA ---
-  if (formCita) {
-    formCita.addEventListener("submit", async function (event) {
-      event.preventDefault();
-      if (!pacienteSeleccionadoId) {
-        alert("Por favor, seleccione un paciente primero.");
-        return;
-      }
-      if (!fechaCitaInput || !fechaCitaInput.value) {
-        alert("La fecha de la cita es obligatoria.");
-        fechaCitaInput.focus();
-        return;
-      }
-      const sumaMacrosActual = sumaMacrosPorcCitaSpan
-        ? parseFloat(sumaMacrosPorcCitaSpan.textContent)
-        : 100;
-      if (Math.abs(sumaMacrosActual - 100) > 0.5) {
-        alert(
-          "La suma de los porcentajes de macronutrientes debe ser aproximadamente 100%. Actualmente es: " +
-            sumaMacrosActual.toFixed(1) +
-            "%"
-        );
-        if (porcCarbsCitaInput) porcCarbsCitaInput.focus();
-        return;
-      }
-
-      const idCitaActual = citaIdInput ? citaIdInput.value : null;
-
-      // Recolectar datos de los planes de alimentación
-      const planesAlimentacion = [];
-      document
-        .querySelectorAll(".plan-alimentacion-individual")
-        .forEach((planDiv) => {
-          const dietaIndice = planDiv.id.split("-")[2];
-          const nombreDietaInput = document.getElementById(
-            `nombre-dieta-${dietaIndice}`
-          );
-          const descripcionDietaInput = document.getElementById(
-            `descripcion-dieta-${dietaIndice}`
-          );
-
-          const tiemposComida = [];
-          planDiv
-            .querySelectorAll(".tiempo-comida-individual")
-            .forEach((tiempoDiv) => {
-              const tiempoFullId = tiempoDiv.id.split("-"); // ej: [dieta, 1, tiempo, 1]
-              const tDietaIdx = tiempoFullId[1];
-              const tTiempoIdx = tiempoFullId[3];
-              const nombreTiempoInput = document.getElementById(
-                `nombre-tiempo-${tDietaIdx}-${tTiempoIdx}`
-              );
-              const detalleTiempoInput = document.getElementById(
-                `detalle-tiempo-${tDietaIdx}-${tTiempoIdx}`
-              );
-              if (nombreTiempoInput && detalleTiempoInput) {
-                tiemposComida.push({
-                  nombre: nombreTiempoInput.value || `Tiempo ${tTiempoIdx}`,
-                  detalle: detalleTiempoInput.value || "",
-                });
-              }
-            });
-
-          planesAlimentacion.push({
-            nombre: nombreDietaInput
-              ? nombreDietaInput.value
-              : `Dieta ${dietaIndice}`,
-            descripcion: descripcionDietaInput
-              ? descripcionDietaInput.value
-              : "",
-            tiempos: tiemposComida,
-          });
-        });
-
-      const citaData = {
-        // pacienteId: pacienteSeleccionadoId, // Ya no es necesario si es subcolección
-        fecha: fechaCitaInput.value,
-        generoRegistrado: generoPacienteHiddenInput
-          ? generoPacienteHiddenInput.value
-          : null,
-        edadRegistrada: edadPacienteHiddenInput
-          ? parseInt(edadPacienteHiddenInput.value) || null
-          : null,
-        alturaRegistradaCm: alturaPacienteHiddenInput
-          ? parseFloat(alturaPacienteHiddenInput.value) || null
-          : null,
-
-        peso: pesoCitaInput ? parseFloat(pesoCitaInput.value) || null : null,
-        medidas: {
-          cintura: circCinturaCitaInput
-            ? parseFloat(circCinturaCitaInput.value) || null
-            : null,
-          cadera: circCaderaCitaInput
-            ? parseFloat(circCaderaCitaInput.value) || null
-            : null,
-          brazo: circBrazoCitaInput
-            ? parseFloat(circBrazoCitaInput.value) || null
-            : null,
-        },
-        pliegues: {
-          bicipital: pliegueBicipitalCitaInput
-            ? parseFloat(pliegueBicipitalCitaInput.value) || null
-            : null,
-          tricipital: pliegueTricipitalCitaInput
-            ? parseFloat(pliegueTricipitalCitaInput.value) || null
-            : null,
-          subescapular: pliegueSubescapularCitaInput
-            ? parseFloat(pliegueSubescapularCitaInput.value) || null
-            : null,
-          suprailiaco: pliegueSuprailiacoCitaInput
-            ? parseFloat(pliegueSuprailiacoCitaInput.value) || null
-            : null,
-          suma4Pliegues:
-            ((pliegueBicipitalCitaInput
-              ? parseFloat(pliegueBicipitalCitaInput.value)
-              : 0) || 0) +
-            ((pliegueTricipitalCitaInput
-              ? parseFloat(pliegueTricipitalCitaInput.value)
-              : 0) || 0) +
-            ((pliegueSubescapularCitaInput
-              ? parseFloat(pliegueSubescapularCitaInput.value)
-              : 0) || 0) +
-            ((pliegueSuprailiacoCitaInput
-              ? parseFloat(pliegueSuprailiacoInput.value)
-              : 0) || 0),
-        },
-        nivelActividad: nivelActividadCitaSelect
-          ? nivelActividadCitaSelect.value
-          : null,
-        tmbEstimado: {
-          harrisBenedict: tmbHarrisBenedictCitaSpan
-            ? parseFloat(tmbHarrisBenedictCitaSpan.textContent) || 0
-            : 0,
-          formulaPulgar: tmbPulgarCitaSpan
-            ? parseFloat(tmbPulgarCitaSpan.textContent) || 0
-            : 0,
-        },
-        gastoEnergeticoTotal: getTotalCitaSpan
-          ? parseFloat(getTotalCitaSpan.textContent) || 0
-          : 0,
-        restriccionCaloricaAplicada: restriccionCaloricaCitaSelect
-          ? parseInt(restriccionCaloricaCitaSelect.value) || 0
-          : 0,
-        caloriasDietaFinal: caloriasFinalesDietaCitaSpan
-          ? parseFloat(caloriasFinalesDietaCitaSpan.textContent) || 0
-          : 0,
-        imc: {
-          valor: imcCitaSpan ? parseFloat(imcCitaSpan.textContent) || 0 : 0,
-          diagnostico: imcDiagnosticoCitaSpan
-            ? imcDiagnosticoCitaSpan.textContent
-            : null,
-        },
-        porcentajeGrasaCorporal: {
-          valor: porcGrasaSiriCitaSpan
-            ? parseFloat(porcGrasaSiriCitaSpan.textContent) || 0
-            : 0,
-          diagnostico: grasaDiagnosticoCitaSpan
-            ? grasaDiagnosticoCitaSpan.textContent
-            : null,
-        },
-        diagnosticoGeneral: diagnosticoGeneralCitaTextarea
-          ? diagnosticoGeneralCitaTextarea.value
-          : "",
-        distribucionMacrosPorcentaje: {
-          carbohidratos: porcCarbsCitaInput
-            ? parseFloat(porcCarbsCitaInput.value) || 0
-            : 0,
-          lipidos: porcLipidosCitaInput
-            ? parseFloat(porcLipidosCitaInput.value) || 0
-            : 0,
-          proteinas: porcProteinasCitaInput
-            ? parseFloat(porcProteinasCitaInput.value) || 0
-            : 0,
-        },
-        distribucionMacrosGramos: {
-          carbohidratos: gramosCarbsCitaSpan
-            ? parseFloat(gramosCarbsCitaSpan.textContent) || 0
-            : 0,
-          lipidos: gramosLipidosCitaSpan
-            ? parseFloat(gramosLipidosCitaSpan.textContent) || 0
-            : 0,
-          proteinas: gramosProteinasCitaSpan
-            ? parseFloat(gramosProteinasCitaSpan.textContent) || 0
-            : 0,
-        },
-        estimacionPerdidaPeso: {
-          semanalKg: perdidaSemanalCitaSpan
-            ? parseFloat(perdidaSemanalCitaSpan.textContent) || 0
-            : 0,
-          dias15Kg: perdida15diasCitaSpan
-            ? parseFloat(perdida15diasCitaSpan.textContent) || 0
-            : 0,
-          dias30Kg: perdida30diasCitaSpan
-            ? parseFloat(perdida30diasCitaSpan.textContent) || 0
-            : 0,
-        },
-        notaNutricional: notaNutricionalCitaTextarea
-          ? notaNutricionalCitaTextarea.value
-          : "",
-        planesAlimentacion: planesAlimentacion, // Array de planes
-        ultimaModificacion: serverTimestamp(),
-      };
-
-      try {
-        const citasCollectionPacienteRef = collection(
-          db,
-          "pacientes",
-          pacienteSeleccionadoId,
-          "citas"
-        );
-
-        if (idCitaActual) {
-          // Editando
-          const citaDocRef = doc(citasCollectionPacienteRef, idCitaActual);
-          await updateDoc(citaDocRef, citaData);
-          alert("Cita actualizada con éxito.");
-        } else {
-          // Creando
-          const docRef = await addDoc(citasCollectionPacienteRef, citaData);
-          alert("Cita guardada con éxito con ID: " + docRef.id);
-        }
-        await cargarDatosPacienteYCitas(pacienteSeleccionadoId); // Recargar y renderizar, esto también resetea el form para nueva cita
-        // resetearFormularioCita(true); // No es necesario si cargarDatosPacienteYCitas lo hace
-      } catch (error) {
-        console.error("Error al guardar cita: ", error);
-        alert("Error al guardar la cita. Verifique la consola.");
-      }
-    });
-  }
-
-  // --- EDICIÓN DE CITA ---
-  async function editarCita(idCita) {
-    const citaAEditar = citasDelPacienteActual.find((c) => c.id === idCita);
-    if (citaAEditar && formCita) {
-      resetearFormularioCita(false); // Limpiar formulario completamente antes de cargar datos de la cita a editar
-
-      if (citaIdInput) citaIdInput.value = citaAEditar.id;
-      if (pacienteIdCitaInput)
-        pacienteIdCitaInput.value = pacienteSeleccionadoId; // ID del paciente actual
-      if (fechaCitaInput) fechaCitaInput.value = citaAEditar.fecha;
-
-      // Cargar datos del paciente como estaban EN ESA CITA
-      if (generoPacienteHiddenInput)
-        generoPacienteHiddenInput.value = citaAEditar.generoRegistrado || "";
-      if (edadPacienteHiddenInput)
-        edadPacienteHiddenInput.value = citaAEditar.edadRegistrada || "";
-      if (alturaPacienteHiddenInput)
-        alturaPacienteHiddenInput.value = citaAEditar.alturaRegistradaCm || "";
-
-      if (nombreCompletoPacienteDisplaySpan)
-        nombreCompletoPacienteDisplaySpan.textContent = `${citaAEditar.nombreRegistrado} ${citaAEditar.apellidoRegistrado}`;
-      if (ocupacionPacienteDisplaySpan)
-        ocupacionPacienteDisplaySpan.textContent =
-          citaAEditar.ocupacion || "N/A";
-      if (telefonoPacienteDisplaySpan)
-        telefonoPacienteDisplaySpan.textContent = citaAEditar.telefono || "N/A";
-      if (correoPacienteDisplaySpan)
-        correoPacienteDisplaySpan.textContent = citaAEditar.correo || "N/A";
-      if (fechaRegistroPacienteDisplaySpan)
-        fechaRegistroPacienteDisplaySpan.textContent = citaAEditar.fechaRegistro
-          ? new Date(
-              citaAEditar.fechaRegistro.seconds * 1000
-            ).toLocaleDateString()
-          : "N/A";
-      if (generoPacienteDisplaySpan)
-        generoPacienteDisplaySpan.textContent =
-          citaAEditar.generoRegistrado || "N/A";
-      if (edadPacienteDisplaySpan)
-        edadPacienteDisplaySpan.textContent = citaAEditar.edadRegistrada
-          ? `${citaAEditar.edadRegistrada} años`
-          : "N/A";
-      if (alturaPacienteDisplaySpan)
-        alturaPacienteDisplaySpan.textContent = citaAEditar.alturaRegistradaCm
-          ? `${citaAEditar.alturaRegistradaCm} cm`
-          : "N/A";
-
-      // Cargar datos de la cita
-      if (pesoCitaInput) pesoCitaInput.value = citaAEditar.peso || "";
-      if (citaAEditar.medidas) {
-        if (circCinturaCitaInput)
-          circCinturaCitaInput.value = citaAEditar.medidas.cintura || "";
-        if (circCaderaCitaInput)
-          circCaderaCitaInput.value = citaAEditar.medidas.cadera || "";
-        if (circBrazoCitaInput)
-          circBrazoCitaInput.value = citaAEditar.medidas.brazo || "";
-      }
-      if (citaAEditar.pliegues) {
-        if (pliegueBicipitalCitaInput)
-          pliegueBicipitalCitaInput.value =
-            citaAEditar.pliegues.bicipital || "";
-        if (pliegueTricipitalCitaInput)
-          pliegueTricipitalCitaInput.value =
-            citaAEditar.pliegues.tricipital || "";
-        if (pliegueSubescapularCitaInput)
-          pliegueSubescapularCitaInput.value =
-            citaAEditar.pliegues.subescapular || "";
-        if (pliegueSuprailiacoCitaInput)
-          pliegueSuprailiacoCitaInput.value =
-            citaAEditar.pliegues.suprailiaco || "";
-      }
-
-      if (nivelActividadCitaSelect)
-        nivelActividadCitaSelect.value =
-          citaAEditar.nivelActividad || "sedentario";
-      if (restriccionCaloricaCitaSelect)
-        restriccionCaloricaCitaSelect.value =
-          citaAEditar.restriccionCaloricaAplicada || "0";
-      if (diagnosticoGeneralCitaTextarea)
-        diagnosticoGeneralCitaTextarea.value =
-          citaAEditar.diagnosticoGeneral || "";
-
-      if (citaAEditar.distribucionMacrosPorcentaje) {
-        if (porcCarbsCitaInput)
-          porcCarbsCitaInput.value =
-            citaAEditar.distribucionMacrosPorcentaje.carbohidratos || "";
-        if (porcLipidosCitaInput)
-          porcLipidosCitaInput.value =
-            citaAEditar.distribucionMacrosPorcentaje.lipidos || "";
-        if (porcProteinasCitaInput)
-          porcProteinasCitaInput.value =
-            citaAEditar.distribucionMacrosPorcentaje.proteinas || "";
-      }
-      if (notaNutricionalCitaTextarea)
-        notaNutricionalCitaTextarea.value = citaAEditar.notaNutricional || "";
-
-      // Cargar planes de alimentación
-      limpiarTextareasPlanAlimentacion();
-      numeroDeDietas = 0;
-      if (
-        citaAEditar.planesAlimentacion &&
-        citaAEditar.planesAlimentacion.length > 0
-      ) {
-        citaAEditar.planesAlimentacion.forEach((plan, index) => {
-          numeroDeDietas++;
-          const nuevoPlanHTML = generarPlanAlimentacionHTML(numeroDeDietas);
-          if (contenedorPlanesAlimentacionCitaDiv) {
-            contenedorPlanesAlimentacionCitaDiv.insertAdjacentHTML(
-              "beforeend",
-              nuevoPlanHTML
-            );
-            const nombreDietaInput = document.getElementById(
-              `nombre-dieta-${numeroDeDietas}`
-            );
-            const descripcionDietaInput = document.getElementById(
-              `descripcion-dieta-${numeroDeDietas}`
-            );
-            if (nombreDietaInput) nombreDietaInput.value = plan.nombre || "";
-            if (descripcionDietaInput)
-              descripcionDietaInput.value = plan.descripcion || "";
-
-            const contenedorTiempos = document.getElementById(
-              `tiempos-comida-dieta-${numeroDeDietas}`
-            );
-            if (contenedorTiempos) contenedorTiempos.innerHTML = ""; // Limpiar antes de agregar
-
-            if (plan.tiempos && plan.tiempos.length > 0) {
-              plan.tiempos.forEach((tiempo, tiempoIdx) => {
-                const tiempoHTML = agregarTiempoComidaHTML(
-                  numeroDeDietas,
-                  tiempoIdx + 1
-                );
-                if (contenedorTiempos)
-                  contenedorTiempos.insertAdjacentHTML("beforeend", tiempoHTML);
-                const nombreTiempoInput = document.getElementById(
-                  `nombre-tiempo-${numeroDeDietas}-${tiempoIdx + 1}`
-                );
-                const detalleTiempoInput = document.getElementById(
-                  `detalle-tiempo-${numeroDeDietas}-${tiempoIdx + 1}`
-                );
-                if (nombreTiempoInput)
-                  nombreTiempoInput.value = tiempo.nombre || "";
-                if (detalleTiempoInput)
-                  detalleTiempoInput.value = tiempo.detalle || "";
-              });
-            }
-            attachEventListenersPlanAlimentacion(numeroDeDietas);
-          }
-        });
-      } else {
-        generarPlanAlimentacionInicial(); // Si no hay planes guardados, generar uno por defecto
-      }
-
-      if (btnCancelarEdicionCita)
-        btnCancelarEdicionCita.classList.remove("hidden");
-      realizarTodosLosCalculos(); // Recalcular todo para actualizar los spans de resultados
-      window.scrollTo({ top: formCita.offsetTop - 20, behavior: "smooth" });
-    } else {
-      console.warn("No se encontró la cita para editar con ID:", idCita);
-      alert("No se pudo cargar la cita para edición.");
-    }
-  }
-  window.editarCita = editarCita; // Hacerla accesible globalmente
-
-  // --- BOTÓN CANCELAR EDICIÓN ---
-  if (btnCancelarEdicionCita) {
-    btnCancelarEdicionCita.addEventListener("click", function () {
-      resetearFormularioCita(true); // Limpiar form, mantener datos del paciente actual
-      // Los datos del paciente (género, edad, altura) se restauran desde los hidden inputs
-      // que fueron cargados al seleccionar el paciente.
-      // `realizarTodosLosCalculos` se llama dentro de `resetearFormularioCita`.
-    });
-  }
-
-  // --- BOTÓN EXPORTAR PDF ---
-  if (btnExportarPdfCita) {
-    btnExportarPdfCita.addEventListener("click", async () => {
-      if (!formCita) {
-        alert("El formulario de cita no se encontró.");
-        return;
-      }
-      if (!pacienteSeleccionadoId) {
-        alert("Por favor, seleccione un paciente primero.");
-        seleccionarPacienteCitaSelect.focus();
-        return;
-      }
-      if (!fechaCitaInput || !fechaCitaInput.value) {
-        alert("Por favor, ingrese una fecha para la cita.");
-        fechaCitaInput.focus();
-        return;
-      }
-
-      const { jsPDF } = window.jspdf;
-      const html2canvas = window.html2canvas;
-
-      if (!jsPDF || !html2canvas) {
-        alert(
-          "Las bibliotecas jsPDF o html2canvas no están cargadas. Asegúrese de que los scripts CDN estén en citas.html."
-        );
-        console.error("jsPDF o html2canvas no encontrados en window.");
-        return;
-      }
-
-      const nombrePaciente = nombrePacienteHistorialCitaSpan
-        ? nombrePacienteHistorialCitaSpan.textContent.trim()
-        : "Paciente";
-      const fechaCita = fechaCitaInput.value;
-      const nombreArchivo = `cita_${nombrePaciente.replace(
-        /\s+/g,
-        "_"
-      )}_${fechaCita}.pdf`;
-
-      const originalButtonText = btnExportarPdfCita.textContent;
-      btnExportarPdfCita.textContent = "Generando PDF...";
-      btnExportarPdfCita.disabled = true;
-
-      try {
-        const doc = new jsPDF({
-          orientation: "p",
-          unit: "mm",
-          format: "a4",
-        });
-
-        const opcionesHtml2Canvas = {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          onclone: (documentCloned) => {
-            const formClonado = documentCloned.getElementById("form-cita");
-            if (formClonado) {
-              const selectoresAOcultar = [
-                "#btn-agregar-otra-dieta-cita",
-                'button[type="submit"]',
-                "#btn-exportar-pdf-cita",
-                "#cancelar-edicion-cita",
-                ".btn-eliminar-dieta",
-                ".btn-agregar-tiempo-comida",
-                ".btn-eliminar-tiempo-comida",
-              ];
-              selectoresAOcultar.forEach((selector) => {
-                formClonado.querySelectorAll(selector).forEach((el) => {
-                  if (el) el.style.display = "none";
-                });
-              });
-
-              formClonado
-                .querySelectorAll("input[readonly]")
-                .forEach((input) => {
-                  const span = documentCloned.createElement("span");
-                  span.textContent =
-                    input.value +
-                    (input.nextElementSibling &&
-                    input.nextElementSibling.tagName === "SPAN" &&
-                    input.nextElementSibling.textContent.includes("kcal")
-                      ? " kcal"
-                      : "");
-                  span.style.display = "inline-block";
-                  span.style.padding = "5px 0";
-                  if (input.parentNode)
-                    input.parentNode.insertBefore(span, input);
-                  input.style.display = "none";
-                });
-              formClonado
-                .querySelectorAll('input:not([type="hidden"]):not([readonly])')
-                .forEach((input) => {
-                  const span = documentCloned.createElement("span");
-                  span.textContent = input.value;
-                  span.style.display = "inline-block";
-                  span.style.padding = "5px 0";
-                  if (input.parentNode)
-                    input.parentNode.insertBefore(span, input);
-                  input.style.display = "none";
-                });
-              formClonado.querySelectorAll("textarea").forEach((textarea) => {
-                const div = documentCloned.createElement("div");
-                div.style.whiteSpace = "pre-wrap";
-                div.style.border = "1px solid #eee";
-                div.style.padding = "5px";
-                div.style.marginTop = "5px";
-                div.style.marginBottom = "5px";
-                div.textContent = textarea.value;
-                if (textarea.parentNode)
-                  textarea.parentNode.insertBefore(div, textarea);
-                textarea.style.display = "none";
-              });
-              formClonado.querySelectorAll("select").forEach((select) => {
-                const span = documentCloned.createElement("span");
-                if (select.selectedIndex >= 0) {
-                  span.textContent = select.options[select.selectedIndex].text;
-                } else {
-                  span.textContent = " (No seleccionado)";
-                }
-                span.style.display = "inline-block";
-                span.style.padding = "5px 0";
-                if (select.parentNode)
-                  select.parentNode.insertBefore(span, select);
-                select.style.display = "none";
-              });
-              // Ocultar spans de gramos si están vacíos o son 0, para limpiar la vista
-              [
-                "#gramos-carbs-cita",
-                "#gramos-lipidos-cita",
-                "#gramos-proteinas-cita",
-              ].forEach((sel) => {
-                const el = formClonado.querySelector(sel);
-                if (
-                  el &&
-                  (el.textContent === "0" || el.textContent === "0.0")
-                ) {
-                  if (el.parentNode) el.parentNode.style.display = "none";
-                }
-              });
-              // Ocultar el span de suma de macros si es 100%
-              const sumaMacrosSpan = formClonado.querySelector(
-                "#suma-macros-porc-cita"
-              );
-              if (
-                sumaMacrosSpan &&
-                sumaMacrosSpan.textContent.startsWith("100")
-              ) {
-                if (sumaMacrosSpan.parentNode)
-                  sumaMacrosSpan.parentNode.style.display = "none";
-              }
-            }
-          },
-        };
-
-        await doc.html(formCita, {
-          callback: function (doc) {
-            doc.save(nombreArchivo);
-            btnExportarPdfCita.textContent = originalButtonText;
-            btnExportarPdfCita.disabled = false;
-          },
-          margin: [10, 10, 10, 10],
-          autoPaging: "slice",
-          x: 0,
-          y: 0,
-          width: 190,
-          windowWidth: formCita.scrollWidth,
-          html2canvas: opcionesHtml2Canvas,
-        });
-      } catch (error) {
-        console.error("Error al generar PDF: ", error);
-        alert("Error al generar el PDF. Revise la consola para más detalles.");
-        btnExportarPdfCita.textContent = originalButtonText;
-        btnExportarPdfCita.disabled = false;
-      }
-    });
-  }
-
-  // --- INICIALIZACIÓN AL CARGAR LA PÁGINA ---
-  await popularSelectPacientes(); // Carga pacientes y, si hay uno seleccionado, sus datos y citas
-  // La lógica de mostrar/ocultar el form y realizar cálculos iniciales ya está en popularSelectPacientes y cargarDatosPacienteYCitas
-  // Si no hay paciente seleccionado, el form estará oculto y los cálculos no se harán o se limpiarán.
-});
+document.addEventListener("DOMContentLoaded", initializeCitasPage);

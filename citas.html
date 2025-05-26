@@ -211,37 +211,39 @@
         </main>
     </div>
 
-    <script src="js/storage.js"></script> <!-- Si no usa módulos, puede ir antes -->
-    <script src="js/utils.js"></script> <!-- Si no usa módulos, puede ir antes -->
+    <!-- <script src="js/citas.js" type="module"></script> --> <!-- Eliminada referencia duplicada -->
+    <script src="js/utils.js" type="module"></script> <!-- Asumiendo que utils.js también puede ser un módulo -->
     <script type="module" src="js/firebase-config.js"></script>
     <script type="module" src="js/citas.js"></script>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            if (!localStorage.getItem('loggedInUser')) {
-                window.location.href = 'index.html';
-                return;
-            }
+    <script type="module">
+        // El script inline ahora es un módulo para poder importar si fuera necesario,
+        // pero principalmente para mantener consistencia y evitar errores de `localStorage` no definido
+        // si el script de citas.js (que ahora maneja auth) se carga antes.
+        // La lógica de redirección y logout ahora está en citas.js usando Firebase.
 
-            const logoutBtn = document.getElementById('logout-btn-sidebar');
-            if (logoutBtn) {
-                logoutBtn.addEventListener('click', function (e) {
-                    e.preventDefault();
-                    localStorage.removeItem('loggedInUser');
-                    window.location.href = 'index.html';
-                });
-            }
+        document.addEventListener('DOMContentLoaded', function () {
+            // Ya no se necesita la verificación de localStorage aquí, citas.js lo maneja.
+
+            // El botón de logout ahora es manejado por citas.js
+            // const logoutBtn = document.getElementById('logout-btn-sidebar');
+            // if (logoutBtn) {
+            //     logoutBtn.addEventListener('click', function (e) {
+            //         e.preventDefault();
+            //         // localStorage.removeItem('loggedInUser'); // Manejado por Firebase signOut
+            //         // window.location.href = 'index.html'; // Manejado por Firebase signOut
+            //     });
+            // }
 
             const estadisticasLink = document.querySelector('.sidebar-nav a[data-section="estadisticas"]');
             if (estadisticasLink) {
                 estadisticasLink.addEventListener('click', function (e) {
                     e.preventDefault();
+                    // Esta lógica de navegación específica puede permanecer si es necesaria.
                     localStorage.setItem('targetSection', 'estadisticas');
                     window.location.href = 'dashboard.html';
                 });
             }
-            // Aquí iría la inicialización de la lógica de citas.js si es necesario,
-            // o se maneja directamente dentro de citas.js al ser un módulo.
         });
     </script>
 </body>
