@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iniciar Sesión - NutriSistem</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <header>
+        <nav class="container">
+            <div class="logo">
+                <a href="index.html" style="text-decoration: none; color: inherit;">
+                    <img src="images/logo.png" alt="NutriSistem Logo">
+                    <span>NutriSistem</span>
+                </a>
+            </div>
+            <div class="nav-buttons">
+                <a href="registro.html" class="btn btn-primary">Registrarse</a>
+                <a href="index.html" class="btn btn-outline">Inicio</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="form-page">
+        <section class="container form-container">
+            <h1>Iniciar Sesión</h1>
+            <form id="formLogin" class="auth-form">
+                <div class="form-group">
+                    <label for="loginEmail">Correo Electrónico</label>
+                    <input type="email" id="loginEmail" name="loginEmail" required>
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Contraseña</label>
+                    <input type="password" id="loginPassword" name="loginPassword" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Iniciar Sesión</button>
+                <p class="text-center">o</p>
+                <button type="button" id="btnLoginGoogle" class="btn btn-google btn-full">
+                    <img src="images/google-icon.png" alt="Google Icon"> Iniciar Sesión con Google
+                </button>
+            </form>
+            <p id="loginMensaje" class="mensaje"></p>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 NutriSistem. Todos los derechos reservados.</p>
+        </div>
+    </footer>
+
+    <script type="module" src="js/login.js"></script>
+</body>
+
+</html>

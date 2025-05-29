@@ -4,48 +4,97 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NutriSistem - Registro</title>
+    <title>Registro - NutriSistem</title>
+
+    <!-- Import Map para Firebase -->
+    <script type="importmap">
+      {
+        "imports": {
+          "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+          "firebase/analytics": "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js",
+          "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
+          "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"
+        }
+      }
+    </script>
+
+    <!-- Script de módulo vacío para activar el importmap en algunos navegadores -->
+    <script type="module"></script>
+
     <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
 </head>
 
 <body>
     <header>
-        <h1>NutriSistem - Registro de Usuario</h1>
+        <nav class="container">
+            <div class="logo">
+                <a href="index.html" style="text-decoration: none; color: inherit;">
+                    <img src="images/logo.png" alt="NutriSistem Logo">
+                    <span>NutriSistem</span>
+                </a>
+            </div>
+            <div class="nav-buttons">
+                <a href="login.html" class="btn btn-secondary">Iniciar Sesión</a>
+                <a href="index.html" class="btn btn-outline">Inicio</a>
+            </div>
+        </nav>
     </header>
-    <main>
-        <section id="registro-section">
-            <h2>Crear Nueva Cuenta</h2>
-            <form id="registro-form">
-                <div>
-                    <label for="nombre-registro">Nombre:</label>
-                    <input type="text" id="nombre-registro" name="nombre-registro" required>
+
+    <main class="form-page">
+        <section class="container form-container">
+            <h1>Regístrate en NutriSistem</h1>
+            <p>Selecciona tu tipo de usuario para comenzar.</p>
+
+            <div id="roleSelection">
+                <h2>¿Qué tipo de usuario eres?</h2>
+                <button id="btnPaciente" class="btn btn-primary btn-role">Soy Paciente</button>
+                <button id="btnNutriologo" class="btn btn-primary btn-role">Soy Nutriólogo</button>
+            </div>
+
+            <form id="formPaciente" class="auth-form hidden">
+                <h2>Registro de Paciente</h2>
+                <div class="form-group">
+                    <label for="pacienteNombres">Nombres</label>
+                    <input type="text" id="pacienteNombres" name="pacienteNombres" required>
                 </div>
-                <div>
-                    <label for="apellido-registro">Apellido:</label>
-                    <input type="text" id="apellido-registro" name="apellido-registro" required>
+                <div class="form-group">
+                    <label for="pacienteApellidos">Apellidos</label>
+                    <input type="text" id="pacienteApellidos" name="pacienteApellidos" required>
                 </div>
-                <div>
-                    <label for="email-registro">Correo Electrónico:</label>
-                    <input type="email" id="email-registro" name="email-registro" required>
+                <div class="form-group">
+                    <label for="pacienteFechaNacimiento">Fecha de Nacimiento</label>
+                    <input type="date" id="pacienteFechaNacimiento" name="pacienteFechaNacimiento" required>
                 </div>
-                <div>
-                    <label for="password-registro">Contraseña:</label>
-                    <input type="password" id="password-registro" name="password-registro" required>
+                <div class="form-group">
+                    <label for="pacienteTelefono">Número Telefónico</label>
+                    <input type="tel" id="pacienteTelefono" name="pacienteTelefono" required>
                 </div>
-                <div>
-                    <label for="confirm-password-registro">Confirmar Contraseña:</label>
-                    <input type="password" id="confirm-password-registro" name="confirm-password-registro" required>
+                <div class="form-group">
+                    <label for="pacienteEmail">Correo Electrónico</label>
+                    <input type="email" id="pacienteEmail" name="pacienteEmail" required>
                 </div>
-                <button type="submit">Registrarse</button>
-                <p id="registro-error" class="error-message"></p>
-                <p>¿Ya tienes una cuenta? <a href="index.html">Inicia sesión aquí</a>.</p>
+                <div class="form-group">
+                    <label for="pacientePassword">Contraseña</label>
+                    <input type="password" id="pacientePassword" name="pacientePassword" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Registrarse</button>
+                <p class="text-center">o</p>
+                <button type="button" id="btnGooglePaciente" class="btn btn-google btn-full">
+                    <img src="images/google-icon.png" alt="Google Icon"> Continuar con Google
+                </button>
             </form>
+            <p id="registroMensaje" class="mensaje"></p>
         </section>
     </main>
+
     <footer>
-        <p>&copy; 2025 NutriSistem</p>
+        <div class="container">
+            <p>&copy; 2025 NutriSistem. Todos los derechos reservados.</p>
+        </div>
     </footer>
-    <script src="js/registro.js" type="module"></script>
+
+    <script type="module" src="js/registro.js"></script>
 </body>
 
 </html>

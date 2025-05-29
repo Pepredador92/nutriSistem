@@ -1,90 +1,97 @@
 // js/dashboard.js
-import {
-  getAuth,
-  signOut,
-  onAuthStateChanged,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { app } from "./firebase-config.js";
+import { auth, db } from './firebase-config.js';
+import { onAuthStateChanged, signOut } from \"https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js\";
+import { doc, getDoc } from \"https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js\";
 
-document.addEventListener("DOMContentLoaded", () => {
-  const auth = getAuth(app);
-  const logoutButtonSidebar = document.getElementById("logout-btn-sidebar");
+document.addEventListener('DOMContentLoaded', () => {
+    const welcomeMessage = document.getElementById('welcomeMessage');
+    const userRoleDisplay = document.getElementById('userRole');
+    const dashboardContent = document.getElementById('dashboardContent');
+    const btnLogout = document.getElementById('btnLogout');
 
-  // Proteger la página: si no hay usuario, redirigir a index.html
-  onAuthStateChanged(auth, (user) => {
-    if (!user) {
-      console.log(
-        "Usuario no autenticado, redirigiendo al login desde dashboard.js"
-      );
-      window.location.href = "index.html";
-    } else {
-      // Opcional: Mostrar nombre de usuario o algo si es necesario
-      // const userEmailElement = document.getElementById('user-email');
-      // if (userEmailElement) userEmailElement.textContent = user.email;
-      console.log("Usuario autenticado:", user.email);
+    if (!welcomeMessage || !userRoleDisplay || !dashboardContent || !btnLogout) {
+        console.error('Elementos del DOM del dashboard no encontrados.');
+        return;
     }
-  });
 
-  // Funcionalidad de cerrar sesión
-  if (logoutButtonSidebar) {
-    logoutButtonSidebar.addEventListener("click", async () => {
-      try {
-        await signOut(auth);
-        console.log("Sesión cerrada exitosamente.");
-        window.location.href = "index.html"; // Redirigir a la página de login
-      } catch (error) {
-        console.error("Error al cerrar sesión:", error);
-        // Aquí podrías mostrar un mensaje de error al usuario
-      }
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            // Usuario está logueado
+            console.log(\"Usuario en dashboard:\", user.uid);
+            const userDocRef = doc(db, \"users\", user.uid);
+            const userDoc = await getDoc(userDocRef);
+
+            let userName = \"Usuario\";
+            let role = \"Desconocido\";
+
+            if (userDoc.exists()) {
+                const userData = userDoc.data();
+                userName = userData.nombres || (user.displayName ? user.displayName.split(' ')[0] : user.email);
+                role = userData.role;
+                
+                // Guardar en localStorage por si se necesita en otras partes o para persistencia simple
+                localStorage.setItem('userName', userName);
+                localStorage.setItem('userRole', role);
+            } else {
+                // Si no hay doc, intentar obtener de localStorage (menos fiable)
+                userName = localStorage.getItem('userName') || (user.displayName ? user.displayName.split(' ')[0] : user.email);
+                role = localStorage.getItem('userRole') || 'paciente'; // Default a paciente si no hay nada
+                console.warn(\"Documento de usuario no encontrado en Firestore, usando localStorage o defaults.\");
+            }
+            
+            welcomeMessage.textContent = \`Bienvenido, ${userName}\`;
+            userRoleDisplay.textContent = \`Tipo de Usuario: ${role.charAt(0).toUpperCase() + role.slice(1)}\`;
+
+            loadDashboardContent(role);
+
+        } else {
+            // Usuario no está logueado, redirigir a login
+            console.log(\"Usuario no logueado, redirigiendo a login.html\");
+            localStorage.removeItem('userName');
+            localStorage.removeItem('userRole');
+            window.location.href = 'login.html';
+        }
     });
-  }
 
-  // Lógica para manejar la navegación de secciones dentro del dashboard (si es necesario aquí)
-  // Por ejemplo, la que podría estar en utils.js para mostrar/ocultar secciones
-  const sidebarNavLinks = document.querySelectorAll(
-    ".sidebar-nav a[data-section]"
-  );
-  const dashboardSections = document.querySelectorAll(".dashboard-section");
-
-  sidebarNavLinks.forEach((link) => {
-    link.addEventListener("click", function (event) {
-      const sectionId = this.getAttribute("data-section");
-
-      // Si el enlace es solo para navegación interna (href="#")
-      if (this.getAttribute("href") === "#") {
-        event.preventDefault(); // Prevenir navegación si es un enlace #
-
-        dashboardSections.forEach((section) => {
-          if (section.id === sectionId + "-section") {
-            section.style.display = "block";
-          } else {
-            section.style.display = "none";
-          }
-        });
-      }
-      // Si es un enlace a otra página (ej. dashboard.html), se deja que navegue normalmente
-      // y la lógica de esa página (o su script de dashboard) manejará la sección activa si es necesario.
-      // Si el data-section es 'inicio' y estamos en dashboard.html, mostramos la sección inicio.
-      else if (
-        sectionId === "inicio" &&
-        window.location.pathname.includes("dashboard.html")
-      ) {
-        event.preventDefault();
-        dashboardSections.forEach((section) => {
-          if (section.id === "inicio-section") {
-            section.style.display = "block";
-          } else {
-            section.style.display = "none";
-          }
-        });
-      }
+    btnLogout.addEventListener('click', async () => {
+        try {
+            await signOut(auth);
+            localStorage.removeItem('userName');
+            localStorage.removeItem('userRole');
+            console.log(\"Usuario cerró sesión\");
+            window.location.href = 'login.html';
+        } catch (error) {
+            console.error(\"Error al cerrar sesión:\", error);
+            alert(\"Error al cerrar sesión. Inténtalo de nuevo.\");
+        }
     });
-  });
-  // Asegurarse de que la sección de inicio esté visible por defecto si estamos en dashboard.html
-  if (window.location.pathname.includes("dashboard.html")) {
-    const inicioSection = document.getElementById("inicio-section");
-    const estadisticasSection = document.getElementById("estadisticas-section");
-    if (inicioSection) inicioSection.style.display = "block";
-    if (estadisticasSection) estadisticasSection.style.display = "none";
-  }
+
+    function loadDashboardContent(role) {
+        dashboardContent.innerHTML = ''; // Limpiar contenido previo
+
+        if (role === 'paciente') {
+            dashboardContent.innerHTML = `
+                <h3>Tus Opciones como Paciente:</h3>
+                <ul>
+                    <li><a href=\"#\">Ver planes alimenticios</a></li>
+                    <li><a href=\"#\">Historial de citas</a></li>
+                    <li><a href=\"#\">Entrenar modelo IA \"NutriCoach\" con tus lecturas</a></li>
+                    <!-- Agrega más elementos según sea necesario -->
+                </ul>
+            `;
+        } else if (role === 'nutriologo') {
+            dashboardContent.innerHTML = `
+                <h3>Tus Herramientas como Nutriólogo:</h3>
+                <ul>
+                    <li><a href=\"#\">Registrar pacientes</a></li>
+                    <li><a href=\"#\">Crear dietas</a></li>
+                    <li><a href=\"#\">Ver historial de pacientes</a></li>
+                    <li><a href=\"#\">Acceso a herramientas premium</a></li>
+                    <!-- Agrega más elementos según sea necesario -->
+                </ul>
+            `;
+        } else {
+            dashboardContent.innerHTML = \"<p>No se pudo determinar el contenido del dashboard para tu rol.</p>\";
+        }
+    }
 });

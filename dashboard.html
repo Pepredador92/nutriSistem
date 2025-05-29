@@ -4,50 +4,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NutriSistem - Dashboard</title>
+    <title>Dashboard - NutriSistem</title>
     <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
 </head>
 
-<body class="dashboard-page">
+<body>
     <header>
-        <h1>NutriSistem - Dashboard</h1>
+        <nav class="container">
+            <div class="logo">
+                <a href="index.html" style="text-decoration: none; color: inherit;">
+                    <img src="images/logo.png" alt="NutriSistem Logo">
+                    <span>NutriSistem</span>
+                </a>
+            </div>
+            <div class="nav-buttons">
+                <button id="btnLogout" class="btn btn-secondary">Cerrar Sesión</button>
+            </div>
+        </nav>
     </header>
-    <div class="dashboard-container">
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h2>NutriSistem</h2>
+
+    <main class="dashboard-page">
+        <section class="container">
+            <h1 id="welcomeMessage">Bienvenido</h1>
+            <p id="userRole">Tipo de Usuario:</p>
+
+            <div id="dashboardContent">
+                <!-- Contenido específico del rol se cargará aquí -->
             </div>
-            <nav class="sidebar-nav">
-                <ul>
-                    <li><a href="dashboard.html" data-section="inicio">Inicio</a></li>
-                    <li><a href="pacientes.html">Registrar Paciente</a></li>
-                    <li><a href="citas.html">Nueva Cita</a></li> <!-- AÑADIDO para consistencia -->
-                    <li><a href="#" data-section="estadisticas">Estadísticas</a></li>
-                </ul>
-            </nav>
-            <div class="sidebar-footer">
-                <button id="logout-btn-sidebar" class="logout-button-sidebar">Cerrar Sesión</button>
-            </div>
-        </aside>
-        <main class="main-content">
-            <section id="inicio-section" class="dashboard-section">
-                <h2>Bienvenido a NutriSistem</h2>
-                <p>Selecciona una opción del menú para comenzar o revisa la información general.</p>
-                <img src="https://picsum.photos/seed/nutrisistem/800/400" alt="Bienvenida a NutriSistem"
-                    class="welcome-image">
-            </section>
-            <section id="estadisticas-section" class="dashboard-section" style="display: none;">
-                <h2>Estadísticas</h2>
-                <p>Esta sección mostrará gráficas y datos relevantes sobre el progreso de los pacientes.</p>
-                <p><em>(Contenido de estadísticas en desarrollo)</em></p>
-            </section>
-        </main>
-    </div>
+        </section>
+    </main>
+
     <footer>
-        <p>&copy; 2025 NutriSistem</p>
+        <div class="container">
+            <p>&copy; 2025 NutriSistem. Todos los derechos reservados.</p>
+        </div>
     </footer>
-    <script src="js/utils.js"></script>
-    <script src="js/dashboard.js" type="module"></script>
+
+    <script type="module" src="js/dashboard.js"></script>
 </body>
 
 </html>

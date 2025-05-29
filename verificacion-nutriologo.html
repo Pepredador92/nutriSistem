@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación Nutriólogo - NutriSistem</title>
+
+    <!-- Import Map para Firebase -->
+    <script type="importmap">
+      {
+        "imports": {
+          "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+          "firebase/analytics": "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js",
+          "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
+          "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"
+        }
+      }
+    </script>
+
+    <!-- Script de módulo vacío para activar el importmap en algunos navegadores -->
+    <script type="module"></script>
+
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <header>
+        <nav class="container">
+            <div class="logo">
+                <a href="index.html" style="text-decoration: none; color: inherit;">
+                    <img src="images/logo.png" alt="NutriSistem Logo">
+                    <span>NutriSistem</span>
+                </a>
+            </div>
+            <div class="nav-buttons">
+                <a href="login.html" class="btn btn-secondary">Iniciar Sesión</a>
+                <a href="index.html" class="btn btn-outline">Inicio</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="form-page">
+        <section class="container form-container">
+            <h1>Registro de Nutriólogo</h1>
+            <div class="notice">
+                <p><strong>Atención:</strong> Para completar tu registro como Nutriólogo y acceder a todas las
+                    herramientas de la plataforma, se requiere una suscripción anual de <strong>$499 MXN</strong>.</p>
+                <p>Por favor, introduce tu clave de acceso para continuar con el registro.</p>
+            </div>
+
+            <form id="formVerificacionNutriologo" class="auth-form">
+                <div class="form-group">
+                    <label for="nutriologoNombres">Nombres</label>
+                    <input type="text" id="nutriologoNombres" name="nutriologoNombres" required>
+                </div>
+                <div class="form-group">
+                    <label for="nutriologoApellidos">Apellidos</label>
+                    <input type="text" id="nutriologoApellidos" name="nutriologoApellidos" required>
+                </div>
+                <div class="form-group">
+                    <label for="nutriologoEmail">Correo Electrónico</label>
+                    <input type="email" id="nutriologoEmail" name="nutriologoEmail" required>
+                </div>
+                <div class="form-group">
+                    <label for="nutriologoPassword">Contraseña</label>
+                    <input type="password" id="nutriologoPassword" name="nutriologoPassword" required>
+                </div>
+                <div class="form-group">
+                    <label for="nutriologoConfirmarPassword">Confirmar Contraseña</label>
+                    <input type="password" id="nutriologoConfirmarPassword" name="nutriologoConfirmarPassword" required>
+                </div>
+                <div class="form-group">
+                    <label for="nutriologoClaveAcceso">Clave de Acceso</label>
+                    <input type="password" id="nutriologoClaveAcceso" name="nutriologoClaveAcceso" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Verificar y Continuar</button>
+                <p class="text-center">o</p>
+                <button type="button" id="btnGoogleNutriologo" class="btn btn-google btn-full">
+                    <img src="images/google-icon.png" alt="Google Icon"> Continuar con Google (requiere clave)
+                </button>
+            </form>
+            <p id="verificacionMensaje" class="mensaje"></p>
+
+            <!-- Modal para la clave de acceso con Google -->
+            <div id="googleKeyModal" class="modal hidden">
+                <div class="modal-content">
+                    <span class="close-button" id="closeModalButton">&times;</span>
+                    <h2>Verificación de Acceso para Google</h2>
+                    <p>Por favor, introduce tu clave de acceso para continuar el registro con Google.</p>
+                    <div class="form-group">
+                        <label for="googleNutriologoClaveAcceso">Clave de Acceso</label>
+                        <input type="password" id="googleNutriologoClaveAcceso" name="googleNutriologoClaveAcceso"
+                            required>
+                    </div>
+                    <button id="btnVerificarClaveGoogle" class="btn btn-primary">Verificar y Continuar con Google
+                    </button>
+                    <p id="modalMensaje" class="mensaje"></p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 NutriSistem. Todos los derechos reservados.</p>
+        </div>
+    </footer>
+
+    <script type="module" src="js/verificacion-nutriologo.js"></script>
+</body>
+
+</html>

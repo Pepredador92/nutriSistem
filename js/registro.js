@@ -1,97 +1,143 @@
+// js/registro.js
+import { auth, db } from "./firebase-config.js";
 import {
-  getAuth,
   createUserWithEmailAndPassword,
-  updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore,
   doc,
   setDoc,
-  serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { app } from "./firebase-config.js"; // Asegúrate que app esté exportada desde firebase-config.js
 
-document.addEventListener("DOMContentLoaded", function () {
-  const registroForm = document.getElementById("registro-form");
-  const registroError = document.getElementById("registro-error");
-  // const STORAGE_KEY_USUARIOS = 'nutriSistemUsuarios'; // Ya no se usará localStorage para usuarios
+document.addEventListener("DOMContentLoaded", () => {
+  const roleSelectionDiv = document.getElementById("roleSelection");
+  const btnPaciente = document.getElementById("btnPaciente");
+  const btnNutriologo = document.getElementById("btnNutriologo");
+  const formPaciente = document.getElementById("formPaciente");
+  const registroMensaje = document.getElementById("registroMensaje");
 
-  const auth = getAuth(app);
-  const db = getFirestore(app);
+  if (!roleSelectionDiv || !btnPaciente || !btnNutriologo || !formPaciente) {
+    console.error(
+      "Elementos del DOM para selección de rol o formulario de paciente no encontrados."
+    );
+    return;
+  }
 
-  if (registroForm) {
-    registroForm.addEventListener("submit", async function (event) {
-      // Convertido a async
-      event.preventDefault();
-      const nombre = event.target["nombre-registro"].value.trim();
-      const apellido = event.target["apellido-registro"].value.trim();
-      const email = event.target["email-registro"].value.trim();
-      const password = event.target["password-registro"].value;
-      const confirmPassword = event.target["confirm-password-registro"].value;
+  btnPaciente.addEventListener("click", () => {
+    roleSelectionDiv.classList.add("hidden");
+    formPaciente.classList.remove("hidden");
+  });
 
-      if (!nombre || !apellido || !email || !password || !confirmPassword) {
-        if (registroError)
-          registroError.textContent = "Todos los campos son obligatorios.";
-        return;
-      }
+  btnNutriologo.addEventListener("click", () => {
+    // Redirigir a la página de verificación de nutriólogo
+    window.location.href = "verificacion-nutriologo.html";
+  });
 
-      if (password !== confirmPassword) {
-        if (registroError)
-          registroError.textContent = "Las contraseñas no coinciden.";
-        return;
-      }
+  // Manejo del formulario de registro de paciente
+  formPaciente.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    registroMensaje.textContent = ""; // Limpiar mensajes previos
+    registroMensaje.className = "mensaje";
 
+    const nombres = document.getElementById("pacienteNombres").value;
+    const apellidos = document.getElementById("pacienteApellidos").value;
+    const fechaNacimiento = document.getElementById(
+      "pacienteFechaNacimiento"
+    ).value;
+    const telefono = document.getElementById("pacienteTelefono").value;
+    const email = document.getElementById("pacienteEmail").value;
+    const password = document.getElementById("pacientePassword").value;
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+      const user = userCredential.user;
+
+      // Guardar información adicional en Firestore
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        nombres: nombres,
+        apellidos: apellidos,
+        fechaNacimiento: fechaNacimiento,
+        telefono: telefono,
+        email: user.email,
+        role: "paciente",
+        createdAt: new Date(),
+      });
+
+      console.log("Paciente registrado con éxito:", user);
+      registroMensaje.textContent =
+        "¡Registro exitoso! Redirigiendo al dashboard...";
+      registroMensaje.classList.add("success");
+      // Guardar rol en localStorage para el dashboard
+      localStorage.setItem("userRole", "paciente");
+      localStorage.setItem("userName", nombres);
+
+      setTimeout(() => {
+        window.location.href = "dashboard.html";
+      }, 2000);
+    } catch (error) {
+      console.error("Error en el registro de paciente:", error);
+      registroMensaje.textContent = `Error: ${error.message}`;
+      registroMensaje.classList.add("error");
+    }
+  });
+
+  // Manejo del registro con Google para Paciente
+  const btnGooglePaciente = document.getElementById("btnGooglePaciente");
+  if (btnGooglePaciente) {
+    btnGooglePaciente.addEventListener("click", async () => {
+      const provider = new GoogleAuthProvider();
       try {
-        // Crear usuario en Firebase Auth
-        const userCredential = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password
+        const result = await signInWithPopup(auth, provider);
+        const user = result.user;
+        console.log("Paciente inició sesión/registró con Google:", user);
+
+        // Aquí deberías verificar si el usuario ya existe en tu DB de Firestore
+        // o si es un nuevo registro para guardar sus datos.
+        // Por ahora, asumimos que si usa Google, es un paciente nuevo o existente.
+        // Se podría requerir un paso adicional para completar el perfil si faltan datos.
+
+        // Guardar/Actualizar información en Firestore
+        // Idealmente, verificar si ya existe para no sobreescribir datos importantes
+        // o para fusionar la información.
+        const userDocRef = doc(db, "users", user.uid);
+        await setDoc(
+          userDocRef,
+          {
+            uid: user.uid,
+            nombres: user.displayName ? user.displayName.split(" ")[0] : "",
+            apellidos: user.displayName
+              ? user.displayName.split(" ").slice(1).join(" ")
+              : "",
+            email: user.email,
+            role: "paciente",
+            photoURL: user.photoURL,
+            createdAt: new Date(), // o mantener el original si ya existe
+          },
+          { merge: true }
+        ); // merge:true para no sobreescribir si ya existe
+
+        registroMensaje.textContent =
+          "¡Inicio de sesión con Google exitoso! Redirigiendo...";
+        registroMensaje.classList.add("success");
+        localStorage.setItem("userRole", "paciente");
+        localStorage.setItem(
+          "userName",
+          user.displayName ? user.displayName.split(" ")[0] : user.email
         );
-        const user = userCredential.user;
 
-        // Actualizar perfil de Firebase Auth con nombre y apellido (displayName)
-        // Firebase Auth usa displayName para el nombre completo.
-        const nombreCompleto = `${nombre} ${apellido}`.trim();
-        await updateProfile(user, {
-          displayName: nombreCompleto,
-        });
-
-        // Guardar información adicional del usuario en Firestore
-        // El ID del documento será el UID de Firebase Auth.
-        await setDoc(doc(db, "users", user.uid), {
-          nombre: nombre,
-          apellido: apellido,
-          nombreCompleto: nombreCompleto, // Guardamos también el nombre completo
-          email: user.email,
-          fechaRegistro: serverTimestamp(), // Fecha y hora del servidor
-          rol: "nutriologo", // Se puede añadir un rol por defecto
-        });
-
-        alert("¡Registro exitoso! Ahora puedes iniciar sesión.");
-        window.location.href = "index.html"; // Redirigir a la página de login
+        setTimeout(() => {
+          window.location.href = "dashboard.html";
+        }, 2000);
       } catch (error) {
-        console.error("Error durante el registro:", error);
-        if (registroError) {
-          // Manejar errores específicos de Firebase Auth
-          switch (error.code) {
-            case "auth/email-already-in-use":
-              registroError.textContent =
-                "Este correo electrónico ya está registrado.";
-              break;
-            case "auth/weak-password":
-              registroError.textContent =
-                "La contraseña es demasiado débil. Debe tener al menos 6 caracteres.";
-              break;
-            case "auth/invalid-email":
-              registroError.textContent =
-                "El formato del correo electrónico no es válido.";
-              break;
-            default:
-              registroError.textContent =
-                "Error al registrar el usuario: " + error.message;
-          }
-        }
+        console.error("Error con Google Sign-In para paciente:", error);
+        registroMensaje.textContent = `Error con Google: ${error.message}`;
+        registroMensaje.classList.add("error");
       }
     });
   }
