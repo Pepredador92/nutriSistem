@@ -91,7 +91,7 @@ document.addEventListener("DOMContentLoaded", () => {
         apellidos: apellidos,
         email: user.email,
         role: "nutriologo",
-        claveVerificada: true, // Marcar que la clave fue verificada
+        nutriologoVerificado: true, // CAMBIADO de claveVerificada a nutriologoVerificado
         createdAt: new Date(),
       });
 
@@ -179,35 +179,31 @@ document.addEventListener("DOMContentLoaded", () => {
         const userDocRef = doc(db, "users", user.uid);
         const userDoc = await getDoc(userDocRef);
 
-        if (userDoc.exists() && userDoc.data().role === "nutriologo") {
-          localStorage.setItem("userRole", "nutriologo");
-          localStorage.setItem(
-            "userName",
-            userDoc.data().nombres || user.displayName.split(" ")[0]
-          );
-        } else {
-          await setDoc(
-            userDocRef,
-            {
-              uid: user.uid,
-              nombres: user.displayName ? user.displayName.split(" ")[0] : "",
-              apellidos: user.displayName
-                ? user.displayName.split(" ").slice(1).join(" ")
-                : "",
-              email: user.email,
-              role: "nutriologo",
-              photoURL: user.photoURL,
-              claveVerificada: true,
-              createdAt: new Date(),
-            },
-            { merge: true }
-          );
-          localStorage.setItem("userRole", "nutriologo");
-          localStorage.setItem(
-            "userName",
-            user.displayName ? user.displayName.split(" ")[0] : user.email
-          );
-        }
+        // Si el usuario ya existe y es nutriólogo, actualizamos o confirmamos su estado
+        // Si no, creamos el nuevo documento de nutriólogo
+        await setDoc(
+          userDocRef,
+          {
+            uid: user.uid,
+            nombres: user.displayName ? user.displayName.split(" ")[0] : "",
+            apellidos: user.displayName
+              ? user.displayName.split(" ").slice(1).join(" ")
+              : "",
+            email: user.email,
+            role: "nutriologo",
+            photoURL: user.photoURL,
+            nutriologoVerificado: true, // CAMBIADO de claveVerificada a nutriologoVerificado
+            createdAt: userDoc.exists() ? userDoc.data().createdAt : new Date(), // Mantener fecha original si existe
+            lastLoginAt: new Date(), // Opcional: actualizar fecha de último login
+          },
+          { merge: true } // Usar merge para no sobrescribir otros campos si ya existe
+        );
+        localStorage.setItem("userRole", "nutriologo");
+        localStorage.setItem(
+          "userName",
+          (userDoc.exists() && userDoc.data().nombres) ||
+            (user.displayName ? user.displayName.split(" ")[0] : user.email)
+        );
 
         verificacionMensaje.textContent =
           "¡Inicio de sesión con Google exitoso! Redirigiendo...";

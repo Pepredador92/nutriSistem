@@ -48,8 +48,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const telefono = document.getElementById("pacienteTelefono").value;
     const email = document.getElementById("pacienteEmail").value;
     const password = document.getElementById("pacientePassword").value;
+    const passwordConfirm = document.getElementById(
+      "pacientePasswordConfirm"
+    ).value; // Obtener valor
+
+    // Validar que las contraseñas coincidan
+    if (password !== passwordConfirm) {
+      registroMensaje.textContent = "Las contraseñas no coinciden.";
+      registroMensaje.className = "mensaje error"; // Aplicar clase de error
+      return; // Detener el proceso si no coinciden
+    }
 
     try {
+      // NO es necesario verificar aquí si el usuario ya existe con createUserWithEmailAndPassword.
+      // Firebase Auth se encarga de esto y lanzará un error 'auth/email-already-in-use'
+      // si el correo electrónico ya está registrado. Este error se captura en el bloque catch.
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
@@ -82,7 +95,12 @@ document.addEventListener("DOMContentLoaded", () => {
       }, 2000);
     } catch (error) {
       console.error("Error en el registro de paciente:", error);
-      registroMensaje.textContent = `Error: ${error.message}`;
+      if (error.code === "auth/email-already-in-use") {
+        registroMensaje.textContent =
+          "Este correo electrónico ya está registrado. Intenta iniciar sesión.";
+      } else {
+        registroMensaje.textContent = `Error: ${error.message}`;
+      }
       registroMensaje.classList.add("error");
     }
   });
@@ -97,15 +115,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const user = result.user;
         console.log("Paciente inició sesión/registró con Google:", user);
 
-        // Aquí deberías verificar si el usuario ya existe en tu DB de Firestore
-        // o si es un nuevo registro para guardar sus datos.
-        // Por ahora, asumimos que si usa Google, es un paciente nuevo o existente.
-        // Se podría requerir un paso adicional para completar el perfil si faltan datos.
-
-        // Guardar/Actualizar información en Firestore
-        // Idealmente, verificar si ya existe para no sobreescribir datos importantes
-        // o para fusionar la información.
         const userDocRef = doc(db, "users", user.uid);
+        // Para Google Sign-In, signInWithPopup maneja tanto el inicio de sesión de usuarios existentes
+        // como el registro de nuevos usuarios. No necesitamos verificar explícitamente 'auth/email-already-in-use' aquí
+        // porque si el usuario de Google ya existe en Firebase Auth, simplemente iniciará sesión.
+        // La lógica de setDoc con { merge: true } actualizará o creará el documento en Firestore según sea necesario.
+
         await setDoc(
           userDocRef,
           {

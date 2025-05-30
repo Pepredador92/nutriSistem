@@ -5,8 +5,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Iniciar Sesión - NutriSistem</title>
+    <link rel="icon" href="images/favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="css/styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script type="importmap">
+    {
+        "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"
+        }
+    }
+    </script>
 </head>
 
 <body>
@@ -28,6 +38,8 @@
     <main class="form-page">
         <section class="container form-container">
             <h1>Iniciar Sesión</h1>
+
+            <!-- Formulario de inicio de sesión único -->
             <form id="formLogin" class="auth-form">
                 <div class="form-group">
                     <label for="loginEmail">Correo Electrónico</label>
@@ -38,12 +50,13 @@
                     <input type="password" id="loginPassword" name="loginPassword" required>
                 </div>
                 <button type="submit" class="btn btn-primary btn-full">Iniciar Sesión</button>
-                <p class="text-center">o</p>
+                <p class="text-center" style="margin: 15px 0;">o</p>
                 <button type="button" id="btnLoginGoogle" class="btn btn-google btn-full">
                     <img src="images/google-icon.png" alt="Google Icon"> Iniciar Sesión con Google
                 </button>
             </form>
-            <p id="loginMensaje" class="mensaje"></p>
+
+            <p id="loginMensaje" class="mensaje" style="margin-top: 20px;"></p>
         </section>
     </main>
 
